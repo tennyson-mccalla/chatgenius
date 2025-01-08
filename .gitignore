@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+.env
+.env.local
+
+# Build
+build/
+dist/
+
+# System files
+.DS_Store
+*.log
+
+# Development files
+docker-compose.yml
+package-lock.json
