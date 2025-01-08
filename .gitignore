@@ -28,3 +28,6 @@ chatgenius/
 # Other
 *.zip
 cors.json
+docker-compose.yml
+package-lock.json
+yarn.lock
