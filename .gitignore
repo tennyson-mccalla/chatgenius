@@ -11,6 +11,20 @@ dist/
 .DS_Store
 *.log
 
-# Development files
-docker-compose.yml
-package-lock.json
+# Test files and scripts
+test*
+*.sh
+downloaded_test.txt
+
+# Temporary directories
+aws/
+docker/
+migrations/
+database/
+backend/
+chatgenius-mvp/
+chatgenius/
+
+# Other
+*.zip
+cors.json
