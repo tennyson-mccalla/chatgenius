@@ -1,47 +1,50 @@
-import React from 'react';
+import { useTheme } from '../contexts/ThemeContext';
 import ReactMarkdown from 'react-markdown';
 
 function Message({ message }) {
+  const { isDark } = useTheme();
+
   return (
     <div style={{
       padding: '8px 20px',
       display: 'flex',
       gap: '12px',
-      ':hover': {
-        backgroundColor: '#f8f8f8'
+      backgroundColor: isDark ? '#202124' : '#ffffff',
+      '&:hover': {
+        backgroundColor: isDark ? '#292a2d' : '#f8f9fa'
       }
     }}>
-      {/* User avatar */}
-      <div style={{
-        width: '36px',
-        height: '36px',
-        borderRadius: '4px',
-        backgroundColor: '#7C3085',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: 'white',
-        fontSize: '14px'
-      }}>
-        {message.user.name[0]}
-      </div>
-
-      {/* Message content */}
-      <div>
+      <img
+        src={message.user.photoURL || `https://ui-avatars.com/api/?name=${message.user.name}&background=random`}
+        alt={message.user.name}
+        style={{
+          width: '40px',
+          height: '40px',
+          borderRadius: '4px',
+          flexShrink: 0
+        }}
+      />
+      <div style={{ flex: 1 }}>
         <div style={{ marginBottom: '4px' }}>
-          <span style={{ fontWeight: 'bold', marginRight: '8px' }}>
+          <span style={{
+            fontWeight: 'bold',
+            marginRight: '8px',
+            color: isDark ? '#e8eaed' : '#202124'
+          }}>
             {message.user.name}
           </span>
-          <span style={{ color: '#616061', fontSize: '12px' }}>
+          <span style={{
+            fontSize: '12px',
+            color: isDark ? '#9aa0a6' : '#5f6368'
+          }}>
             {new Date(message.timestamp).toLocaleTimeString()}
           </span>
         </div>
-        <div>
-          {message.formatted ? (
-            <ReactMarkdown>{message.text}</ReactMarkdown>
-          ) : (
-            message.text
-          )}
+        <div style={{
+          color: isDark ? '#e8eaed' : '#202124',
+          lineHeight: '1.4'
+        }}>
+          <ReactMarkdown>{message.text}</ReactMarkdown>
         </div>
       </div>
     </div>

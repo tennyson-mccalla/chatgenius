@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Message from './Message';
 import ReactMarkdown from 'react-markdown';
 import { useParams } from 'react-router-dom';
+import { useTheme } from '../contexts/ThemeContext';
 
 function Chat() {
   const { channelId = 'general' } = useParams();
@@ -15,6 +16,7 @@ function Chat() {
   const { currentUser } = useAuth();
   const messagesEndRef = useRef(null);
   const [channel, setChannel] = useState(null);
+  const { isDark } = useTheme();
 
   // Scroll to bottom when new messages arrive
   const scrollToBottom = () => {
@@ -27,38 +29,70 @@ function Chat() {
 
   // Subscribe to messages
   useEffect(() => {
-    const q = query(
-      collection(db, 'channels', channelId, 'messages'),
-      orderBy('timestamp', 'asc')
-    );
+    if (!currentUser) return;
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const newMessages = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setMessages(newMessages);
-    });
+    let unsubscribe;
 
-    // Cleanup subscription
-    return () => unsubscribe();
-  }, [channelId]);
+    const setupSubscription = async () => {
+      try {
+        const q = query(
+          collection(db, 'channels', channelId, 'messages'),
+          orderBy('timestamp', 'asc')
+        );
+
+        unsubscribe = onSnapshot(q, (snapshot) => {
+          const newMessages = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          setMessages(newMessages);
+        }, (error) => {
+          // Ignore permission errors during logout
+          if (error.code !== 'permission-denied') {
+            console.error("Error fetching messages:", error);
+          }
+        });
+      } catch (error) {
+        console.error("Error setting up subscription:", error);
+      }
+    };
+
+    setupSubscription();
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+      setMessages([]);
+    };
+  }, [channelId, currentUser]);
 
   // Fetch channel details
   useEffect(() => {
+    if (!currentUser) return;
+
     const fetchChannel = async () => {
-      const channelRef = doc(db, 'channels', channelId);
-      const channelSnap = await getDoc(channelRef);
-      if (channelSnap.exists()) {
-        setChannel({
-          id: channelSnap.id,
-          ...channelSnap.data()
-        });
+      try {
+        const channelRef = doc(db, 'channels', channelId);
+        const channelSnap = await getDoc(channelRef);
+        if (channelSnap.exists()) {
+          setChannel({
+            id: channelSnap.id,
+            ...channelSnap.data()
+          });
+        }
+      } catch (error) {
+        console.error("Error fetching channel:", error);
       }
     };
 
     fetchChannel();
-  }, [channelId]);
+
+    // Cleanup
+    return () => {
+      setChannel(null); // Clear channel on unmount
+    };
+  }, [channelId, currentUser]); // Add currentUser as dependency
 
   const insertText = (before, after, defaultText = '') => {
     const input = inputRef.current;
@@ -121,17 +155,26 @@ function Chat() {
   };
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div style={{
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      backgroundColor: isDark ? '#202124' : '#ffffff',
+      color: isDark ? '#e8eaed' : '#202124',
+      flex: 1,
+      minWidth: 0 // Prevents flex items from overflowing
+    }}>
       {/* Channel header */}
       <div style={{
         padding: '16px 20px',
-        borderBottom: '1px solid #e2e2e2',
-        backgroundColor: '#fff'
+        borderBottom: `1px solid ${isDark ? '#3c4043' : '#e2e2e2'}`,
+        backgroundColor: isDark ? '#292a2d' : '#ffffff'
       }}>
         <h2 style={{
           margin: 0,
           fontSize: '18px',
-          fontWeight: 'bold'
+          fontWeight: 'bold',
+          color: isDark ? '#e8eaed' : '#202124'
         }}>
           # {channel?.name || channelId}
         </h2>
@@ -144,7 +187,8 @@ function Chat() {
         padding: '20px 0',
         display: 'flex',
         flexDirection: 'column',
-        gap: '4px'
+        gap: '4px',
+        backgroundColor: isDark ? '#202124' : '#ffffff'
       }}>
         {messages.map(message => (
           <Message key={message.id} message={message} />
@@ -155,14 +199,14 @@ function Chat() {
       {/* Message input */}
       <form onSubmit={handleSendMessage} style={{ padding: '0 20px 20px 20px' }}>
         <div style={{
-          border: '1px solid #e2e2e2',
+          border: `1px solid ${isDark ? '#3c4043' : '#e2e2e2'}`,
           borderRadius: '4px',
-          backgroundColor: '#ffffff'
+          backgroundColor: isDark ? '#292a2d' : '#ffffff'
         }}>
           {/* Formatting toolbar */}
           <div style={{
             padding: '8px 12px',
-            borderBottom: '1px solid #e2e2e2',
+            borderBottom: `1px solid ${isDark ? '#3c4043' : '#e2e2e2'}`,
             display: 'flex',
             gap: '16px'
           }}>
@@ -177,7 +221,7 @@ function Chat() {
                   cursor: 'pointer',
                   opacity: 0.7,
                   transition: 'opacity 0.2s',
-                  ':hover': { opacity: 1 }
+                  color: isDark ? '#e8eaed' : '#202124',
                 }}
               >
                 <span role="img" aria-label={label}>{icon}</span>
@@ -185,21 +229,21 @@ function Chat() {
             ))}
           </div>
 
-          {/* Preview area - only show if there's content */}
+          {/* Preview area */}
           {newMessage.trim() && (
             <div style={{
               padding: '8px 12px',
-              borderBottom: '1px solid #e2e2e2',
+              borderBottom: `1px solid ${isDark ? '#3c4043' : '#e2e2e2'}`,
               fontSize: '14px',
-              color: '#616061',
-              backgroundColor: '#f8f8f8'
+              color: isDark ? '#9aa0a6' : '#616061',
+              backgroundColor: isDark ? '#202124' : '#f8f8f8'
             }}>
               <div style={{ marginBottom: '4px', fontWeight: 'bold' }}>Preview</div>
               <ReactMarkdown>{newMessage}</ReactMarkdown>
             </div>
           )}
 
-          {/* Replace input with textarea */}
+          {/* Message input */}
           <textarea
             ref={inputRef}
             value={newMessage}
@@ -218,7 +262,8 @@ function Chat() {
               border: 'none',
               outline: 'none',
               fontSize: '15px',
-              backgroundColor: sending ? '#f8f8f8' : 'white',
+              backgroundColor: isDark ? '#292a2d' : sending ? '#f8f8f8' : 'white',
+              color: isDark ? '#e8eaed' : '#202124',
               resize: 'none',
               minHeight: '44px',
               maxHeight: '200px',

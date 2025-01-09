@@ -1,24 +1,27 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import { ThemeProvider } from './contexts/ThemeContext';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Login from './components/Login';
-import Chat from './components/Chat';
 import { useAuth } from './contexts/AuthContext';
-import { PresenceProvider } from './contexts/PresenceContext';
 
-function AuthenticatedApp() {
+function PrivateRoute({ children }) {
   const { currentUser } = useAuth();
+  return currentUser ? children : <Navigate to="/login" replace />;
+}
 
-  if (!currentUser) {
-    return <Login />;
-  }
+function PublicRoute({ children }) {
+  const { currentUser } = useAuth();
+  return !currentUser ? children : <Navigate to="/" replace />;
+}
 
+function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Layout />}>
-        <Route index element={<Chat />} />
-        <Route path="channel/:channelId" element={<Chat />} />
+      <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+      <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
+        <Route index element={<Navigate to="/channels/general" replace />} />
+        <Route path="/channels/:channelId" element={<Layout />} />
       </Route>
     </Routes>
   );
@@ -26,13 +29,13 @@ function AuthenticatedApp() {
 
 function App() {
   return (
-    <Router>
-      <AuthProvider>
-        <PresenceProvider>
-          <AuthenticatedApp />
-        </PresenceProvider>
-      </AuthProvider>
-    </Router>
+    <BrowserRouter>
+      <ThemeProvider>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </ThemeProvider>
+    </BrowserRouter>
   );
 }
 

@@ -1,108 +1,132 @@
 import React from 'react';
-import { Outlet } from 'react-router-dom';
+import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
-import Channels from './Channels';
-import OnlineUsers from './OnlineUsers';
+import { useNavigate, Navigate } from 'react-router-dom';
+import Sidebar from './Sidebar';
+import Chat from './Chat';
+import ThemeToggle from './ThemeToggle';
+import { handleSignOut } from '../utils/cleanupSessions';
+import { usePresence } from '../hooks/usePresence';
 
 function Layout() {
-  const { logout } = useAuth();
+  const { isDark } = useTheme();
+  const { currentUser } = useAuth();
+  const navigate = useNavigate();
+
+  usePresence(currentUser);
+
+  // Redirect to login if not authenticated
+  if (!currentUser) {
+    return <Navigate to="/login" replace />;
+  }
 
   return (
-    <div style={{ height: '100vh', display: 'flex' }}>
-      {/* Left icon bar */}
+    <div style={{
+      display: 'flex',
+      height: '100vh',
+      width: '100%',
+    }}>
+      {/* Unified header */}
       <div style={{
-        width: '64px',
-        backgroundColor: '#400C41',
-        padding: '16px',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: '48px',
+        backgroundColor: '#2F1F3F',
         display: 'flex',
-        flexDirection: 'column',
-        gap: '16px'
+        alignItems: 'center',
+        zIndex: 100,
       }}>
+        {/* Left section matching workspace column width - removed border */}
         <div style={{
-          width: '36px',
-          height: '36px',
-          backgroundColor: '#611f69',
-          borderRadius: '4px',
+          width: '64px',
+          height: '100%',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: 'white',
-          fontSize: '20px'
         }}>
-          C
+          <ThemeToggle />
         </div>
-      </div>
 
-      {/* Channel sidebar */}
-      <div style={{
-        width: '260px',
-        backgroundColor: '#57275A',
-        display: 'flex',
-        flexDirection: 'column'
-      }}>
-        {/* Workspace header */}
+        {/* Title section */}
         <div style={{
-          padding: '16px',
-          color: 'white',
-          borderBottom: '1px solid #522653'
+          padding: '0 16px',
         }}>
-          {/* Search bar */}
-          <div style={{
-            backgroundColor: '#724475',
-            borderRadius: '4px',
-            padding: '8px 12px',
-            marginBottom: '16px'
-          }}>
-            <input
-              type="text"
-              placeholder="Search"
-              style={{
-                width: '100%',
-                background: 'none',
-                border: 'none',
-                color: 'white',
-                outline: 'none',
-                '::placeholder': { color: '#CFC3CF' }
-              }}
-            />
-          </div>
-
           <h1 style={{
             margin: 0,
             fontSize: '18px',
-            fontWeight: 'bold'
+            fontWeight: 'bold',
+            color: '#ffffff'
           }}>
-            ChatGenius
+            Chat Genius
           </h1>
         </div>
-
-        {/* Channels list */}
-        <Channels />
-
-        {/* Add OnlineUsers before logout button */}
-        <OnlineUsers />
-
-        {/* Logout button */}
-        <button
-          onClick={logout}
-          style={{
-            margin: '16px',
-            padding: '8px 16px',
-            backgroundColor: '#611f69',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            marginTop: 'auto'
-          }}
-        >
-          Sign Out
-        </button>
       </div>
 
-      {/* Main content area */}
-      <div style={{ flex: 1, backgroundColor: '#fff' }}>
-        <Outlet />
+      {/* Main content with top padding for header */}
+      <div style={{
+        display: 'flex',
+        width: '100%',
+        marginTop: '48px'
+      }}>
+        {/* Workspace Column */}
+        <div style={{
+          width: '64px',
+          minWidth: '64px',
+          height: 'calc(100vh - 48px)',
+          backgroundColor: '#2F1F3F',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          padding: '12px 0',
+          flexShrink: 0
+        }}>
+          {currentUser && (
+            <button
+              onClick={() => handleSignOut(navigate)}
+              style={{
+                marginTop: 'auto',
+                background: 'none',
+                border: 'none',
+                padding: '8px',
+                cursor: 'pointer',
+                color: 'rgba(255,255,255,0.7)',
+                '&:hover': {
+                  color: '#ffffff'
+                }
+              }}
+              aria-label="Sign out"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {/* Channels Column */}
+        <div style={{
+          width: '240px',
+          minWidth: '240px',
+          height: 'calc(100vh - 48px)',
+          backgroundColor: '#3F2F4F',
+          display: 'flex',
+          flexDirection: 'column',
+          flexShrink: 0
+        }}>
+          <Sidebar />
+        </div>
+
+        {/* Chat Area */}
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          minWidth: 0,
+          backgroundColor: isDark ? '#1a1d21' : '#ffffff'
+        }}>
+          <Chat />
+        </div>
       </div>
     </div>
   );

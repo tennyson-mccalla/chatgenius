@@ -41,11 +41,22 @@ export function AuthProvider({ children }) {
   // Google Sign In
   const signInWithGoogle = async () => {
     try {
+      console.log("Starting Google sign in...");
       const provider = new GoogleAuthProvider();
+      console.log("Created provider...");
+
       const result = await signInWithPopup(auth, provider);
+      console.log("Auth result:", result.user);
+
+      // After successful sign-in
+      const userRef = doc(db, 'users', result.user.uid);
+      console.log("Attempting to access:", userRef.path);
+
       await updateUserData(result.user, true);
     } catch (error) {
       console.error("Error signing in with Google:", error);
+      console.error("Error code:", error.code);
+      console.error("Error message:", error.message);
       throw error;
     }
   };
