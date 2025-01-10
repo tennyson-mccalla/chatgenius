@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, enableIndexedDbPersistence, CACHE_SIZE_UNLIMITED } from 'firebase/firestore';
+import { getFirestore, enableIndexedDbPersistence, CACHE_SIZE_UNLIMITED, collection } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 // console.log('Firebase Config:', {
 //   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -18,6 +19,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
 // Configure Firestore
 const initializeFirestore = async () => {
@@ -45,4 +47,15 @@ initializeFirestore().catch(console.error);
 // Configure Auth settings
 auth.useDeviceLanguage();
 
-export { app, auth, db };
+// New collections in Firestore
+const directMessages = collection(db, 'directMessages');
+const threads = collection(db, 'threads');
+const reactions = collection(db, 'reactions');
+
+// Collections
+export const channelsRef = collection(db, 'channels');
+export const directMessagesRef = collection(db, 'directMessages');
+export const threadsRef = collection(db, 'threads');
+export const reactionsRef = collection(db, 'reactions');
+
+export { app, auth, db, storage };

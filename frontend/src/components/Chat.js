@@ -190,8 +190,12 @@ function Chat() {
         gap: '4px',
         backgroundColor: isDark ? '#202124' : '#ffffff'
       }}>
-        {messages.map(message => (
-          <Message key={message.id} message={message} />
+        {messages.map((message) => (
+          <Message
+            key={message.id}
+            message={message}
+            channelId={channelId}
+          />
         ))}
         <div ref={messagesEndRef} />
       </div>

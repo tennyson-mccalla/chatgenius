@@ -1,43 +1,34 @@
 import React from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { API_BASE_URL } from '../config';
+import { useTheme } from '../contexts/ThemeContext';
 
-const EMOJI_LIST = ['👍', '❤️', '😄', '🎉', '🤔', '👀', '🚀', '👏'];
-
-function ReactionPicker({ messageId, onReactionSelect, onUpdate }) {
-  const { token } = useAuth();
-
-  const handleReactionClick = async (emoji) => {
-    try {
-      await fetch(`${API_BASE_URL}/messages/${messageId}/reactions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ emoji }),
-      });
-
-      onUpdate();
-      onReactionSelect();
-    } catch (error) {
-      console.error('Failed to add reaction:', error);
-    }
-  };
+function ReactionPicker({ message, onReactionSelect }) {
+  const { isDark } = useTheme();
+  const commonEmojis = ['👍', '❤️', '😄', '🎉', '🤔', '👀'];
 
   return (
-    <div className="absolute bottom-full mb-2 bg-white border rounded shadow-lg p-2">
-      <div className="grid grid-cols-4 gap-2">
-        {EMOJI_LIST.map((emoji) => (
-          <button
-            key={emoji}
-            onClick={() => handleReactionClick(emoji)}
-            className="hover:bg-gray-100 p-1 rounded"
-          >
-            {emoji}
-          </button>
-        ))}
-      </div>
+    <div style={{
+      position: 'absolute',
+      backgroundColor: isDark ? '#292a2d' : '#ffffff',
+      border: `1px solid ${isDark ? '#3c4043' : '#e2e2e2'}`,
+      borderRadius: '6px',
+      padding: '8px',
+      display: 'flex',
+      gap: '8px'
+    }}>
+      {commonEmojis.map(emoji => (
+        <button
+          key={emoji}
+          onClick={() => onReactionSelect(emoji)}
+          style={{
+            border: 'none',
+            background: 'none',
+            cursor: 'pointer',
+            fontSize: '20px'
+          }}
+        >
+          {emoji}
+        </button>
+      ))}
     </div>
   );
 }
