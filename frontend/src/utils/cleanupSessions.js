@@ -5,24 +5,41 @@ import { auth, db } from '../firebase';
 const INACTIVE_THRESHOLD = 5 * 60 * 1000;
 
 export async function cleanupStaleSessions() {
-  const usersRef = collection(db, 'users');
-  const q = query(
-    usersRef,
-    where('online', '==', true)
-  );
+  try {
+    const fiveMinutesAgo = new Date();
+    fiveMinutesAgo.setMinutes(fiveMinutesAgo.getMinutes() - 5);
 
-  const snapshot = await getDocs(q);
-  const now = Date.now();
+    // Query for stale presence records
+    const presenceRef = collection(db, 'presence');
+    const staleQuery = query(
+      presenceRef,
+      where('online', '==', true),
+      where('lastUpdated', '<', fiveMinutesAgo)
+    );
 
-  snapshot.docs.forEach(async (doc) => {
-    const lastSeen = doc.data().lastSeen?.toMillis();
-    if (lastSeen && (now - lastSeen > INACTIVE_THRESHOLD)) {
-      await updateDoc(doc.ref, {
+    const snapshot = await getDocs(staleQuery);
+
+    // Update stale records
+    const updates = snapshot.docs.map(async (doc) => {
+      const presenceRef = doc.ref;
+      const userRef = doc(db, 'users', doc.id);
+
+      const offlineData = {
         online: false,
-        lastSeen: serverTimestamp()
-      });
-    }
-  });
+        lastSeen: serverTimestamp(),
+        lastUpdated: serverTimestamp()
+      };
+
+      return Promise.all([
+        setDoc(presenceRef, offlineData, { merge: true }),
+        setDoc(userRef, offlineData, { merge: true })
+      ]);
+    });
+
+    await Promise.all(updates);
+  } catch (error) {
+    console.error('Error cleaning up stale sessions:', error);
+  }
 }
 
 export const cleanupUserSession = async (userId) => {

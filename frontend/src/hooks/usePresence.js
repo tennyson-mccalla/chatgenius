@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { db } from '../firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 export function usePresence(currentUser) {
   useEffect(() => {
@@ -12,11 +12,13 @@ export function usePresence(currentUser) {
 
     // Set initial online status
     const setOnlineStatus = async () => {
-      if (!cleanup) return; // Don't update if we're cleaning up
+      if (!cleanup) return;
 
+      const now = Timestamp.now();
       await setDoc(presenceRef, {
         online: true,
-        lastSeen: new Date().toISOString(),
+        lastSeen: now,
+        lastUpdated: now,
         displayName: currentUser.displayName || 'Guest User'
       }, { merge: true });
 
@@ -24,24 +26,42 @@ export function usePresence(currentUser) {
         displayName: currentUser.displayName || 'Guest User',
         photoURL: currentUser.photoURL,
         email: currentUser.email,
-        isAnonymous: currentUser.isAnonymous
+        isAnonymous: currentUser.isAnonymous,
+        online: true,
+        lastSeen: now,
+        lastUpdated: now
       }, { merge: true });
     };
 
     setOnlineStatus();
 
-    // Set up cleanup
-    const handleUnload = async () => {
-      cleanup = false; // Prevent further updates
+    // Update presence periodically
+    const interval = setInterval(async () => {
+      if (!cleanup) return;
       try {
+        const now = Timestamp.now();
         await setDoc(presenceRef, {
-          online: false,
-          lastSeen: new Date().toISOString()
+          lastUpdated: now,
+          online: true  // Ensure we're still marked as online
         }, { merge: true });
       } catch (error) {
-        // Only log if it's not a cancelled request
+        console.error('Error updating presence:', error);
+      }
+    }, 30000); // Update every 30 seconds
+
+    // Set up cleanup
+    const handleUnload = async () => {
+      cleanup = false;
+      try {
+        const now = Timestamp.now();
+        await setDoc(presenceRef, {
+          online: false,
+          lastSeen: now,
+          lastUpdated: now
+        }, { merge: true });
+      } catch (error) {
         if (!error.message.includes('cancel')) {
-          console.log('Cleanup error (expected during logout):', error);
+          console.error('Cleanup error:', error);
         }
       }
     };
@@ -49,12 +69,12 @@ export function usePresence(currentUser) {
     window.addEventListener('beforeunload', handleUnload);
 
     return () => {
-      cleanup = false; // Prevent updates during cleanup
+      cleanup = false;
+      clearInterval(interval);
       window.removeEventListener('beforeunload', handleUnload);
       handleUnload().catch(error => {
-        // Only log if it's not a cancelled request
         if (!error.message.includes('cancel')) {
-          console.log('Cleanup error:', error);
+          console.error('Cleanup error:', error);
         }
       });
     };

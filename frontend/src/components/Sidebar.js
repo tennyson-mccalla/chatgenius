@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, query, onSnapshot, orderBy, where } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, where, Timestamp } from 'firebase/firestore';
 import { useNavigate, useParams } from 'react-router-dom';
 
 function Sidebar() {
@@ -25,12 +25,26 @@ function Sidebar() {
 
   // Fetch online users
   useEffect(() => {
-    const q = query(collection(db, 'presence'), where('online', '==', true));
+    const q = query(
+      collection(db, 'presence'),
+      where('online', '==', true)
+    );
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const users = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const now = Date.now();
+      const twoMinutesAgo = now - (2 * 60 * 1000);
+
+      const users = snapshot.docs
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }))
+        .filter(user => {
+          const lastUpdated = user.lastUpdated?.toMillis();
+          return lastUpdated && lastUpdated > twoMinutesAgo;
+        });
+
+      console.log('Online users:', users); // Debug log
       setOnlineUsers(users);
     });
     return () => unsubscribe();
