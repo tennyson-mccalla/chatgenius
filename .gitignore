@@ -32,3 +32,8 @@ docker-compose.yml
 package-lock.json
 yarn.lock
 .vscode/
+
+# Firebase
+.firebase/
+.firebaserc
+firebase.json
