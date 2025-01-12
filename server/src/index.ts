@@ -5,6 +5,7 @@ import cors from 'cors';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import passport from './config/passport.config';
+import './config/oauth.config';
 import authRoutes from './routes/auth.routes';
 
 dotenv.config();
@@ -19,7 +20,10 @@ const io = new Server(httpServer, {
 });
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  credentials: true
+}));
 app.use(express.json());
 app.use(passport.initialize());
 

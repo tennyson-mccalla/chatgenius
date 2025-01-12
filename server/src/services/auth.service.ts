@@ -33,6 +33,10 @@ class AuthService {
     return sanitizedUser;
   }
 
+  async generateTokensForUser(userId: string): Promise<{ token: string; refreshToken: string }> {
+    return AuthService.generateTokens(userId);
+  }
+
   async register({ username, email, password }: RegisterParams): Promise<AuthResponse> {
     // Check if user exists
     const existingUser = await User.findOne({
