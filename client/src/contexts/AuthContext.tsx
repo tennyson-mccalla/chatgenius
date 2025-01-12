@@ -6,12 +6,30 @@ interface AuthContextType {
   handleOAuthCallback: (searchParams: URLSearchParams) => void;
 }
 
-const AuthContext = createContext<AuthContextType | null>(null);
+// Create the context with a default value
+const AuthContext = createContext<AuthContextType>({
+  handleOAuthCallback: () => {},
+});
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
+// Custom hook to use the auth context
+export function useAuth() {
+  return useContext(AuthContext);
+}
+
+const PUBLIC_PATHS = ['/login', '/register', '/oauth/callback'];
+
+// Provider component
+export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { setUser } = useAuthStore();
+  const { setUser, checkAuth } = useAuthStore();
+
+  useEffect(() => {
+    // Skip auth check on public paths
+    if (!PUBLIC_PATHS.includes(location.pathname)) {
+      checkAuth();
+    }
+  }, [location.pathname]);
 
   const handleOAuthCallback = (searchParams: URLSearchParams) => {
     const token = searchParams.get('token');
@@ -37,17 +55,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [location]);
 
+  const value = {
+    handleOAuthCallback,
+  };
+
   return (
-    <AuthContext.Provider value={{ handleOAuthCallback }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
-};
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
+}

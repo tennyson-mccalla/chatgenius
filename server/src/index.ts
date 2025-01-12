@@ -4,11 +4,16 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import passport from './config/passport.config';
-import './config/oauth.config';
-import authRoutes from './routes/auth.routes';
+import passport from 'passport';
 
+// Load environment variables first
 dotenv.config();
+
+// Load passport configurations in correct order
+import './config/oauth.config';
+import './config/passport.config';
+import authRoutes from './routes/auth.routes';
+import channelRoutes from './routes/channel.routes';
 
 const app = express();
 const httpServer = createServer(app);
@@ -29,6 +34,7 @@ app.use(passport.initialize());
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/channels', channelRoutes);
 
 // Basic route
 app.get('/', (req, res) => {
@@ -46,12 +52,19 @@ io.on('connection', (socket) => {
 
 // MongoDB connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/chatgenius';
-mongoose.connect(MONGODB_URI)
-  .then(() => console.log('Connected to MongoDB'))
-  .catch((error) => console.error('MongoDB connection error:', error));
 
-// Start server
-const PORT = process.env.PORT || 3000;
-httpServer.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+mongoose.set('strictQuery', false);
+mongoose.connect(MONGODB_URI)
+  .then(() => {
+    console.log('Connected to MongoDB at:', MONGODB_URI);
+
+    // Only start the server after DB connection is established
+    const PORT = process.env.PORT || 3000;
+    httpServer.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error('MongoDB connection error:', error);
+    process.exit(1);  // Exit if we can't connect to the database
+  });

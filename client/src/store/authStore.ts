@@ -85,19 +85,34 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  logout: () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('refreshToken');
-    set({ user: null, isAuthenticated: false });
+  logout: async () => {
+    try {
+      await auth.logout();
+    } catch (error) {
+      console.error('Error logging out:', error);
+    } finally {
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+      set({ user: null, isAuthenticated: false });
+    }
   },
 
   checkAuth: async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      set({ user: null, isAuthenticated: false, isLoading: false });
+      return;
+    }
+
     try {
       set({ isLoading: true });
       const response = await auth.getCurrentUser();
-      set({ user: response.data, isAuthenticated: true });
+      set({ user: response.data, isAuthenticated: true, error: null });
     } catch (error) {
-      set({ user: null, isAuthenticated: false });
+      // Clear tokens if they're invalid
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+      set({ user: null, isAuthenticated: false, error: null });
     } finally {
       set({ isLoading: false });
     }

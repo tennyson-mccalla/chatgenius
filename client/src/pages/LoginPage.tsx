@@ -28,12 +28,15 @@ export const LoginPage = () => {
   const [guestUsername, setGuestUsername] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isGuestMode, setIsGuestMode] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isGuestLoading, setIsGuestLoading] = useState(false);
   const navigate = useNavigate();
   const toast = useToast();
   const { login, guestLogin } = useAuthStore();
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsLoading(true);
     try {
       await login(email, password);
       navigate('/');
@@ -45,140 +48,148 @@ export const LoginPage = () => {
         duration: 3000,
         isClosable: true,
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleGuestLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      await guestLogin(guestUsername);
-      navigate('/');
-    } catch (error: any) {
+    if (!guestUsername.trim()) {
       toast({
-        title: 'Guest login failed',
-        description: error.response?.data?.message || 'Please try a different username',
+        title: 'Username required',
+        description: 'Please enter a username to continue as guest',
         status: 'error',
         duration: 3000,
         isClosable: true,
       });
+      return;
+    }
+
+    setIsGuestLoading(true);
+    try {
+      await guestLogin(guestUsername);
+      navigate('/');
+    } catch (error: any) {
+      console.error('Guest login error:', error);
+      toast({
+        title: 'Guest login failed',
+        description: error.response?.data?.message || 'An error occurred while trying to login as guest',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+    } finally {
+      setIsGuestLoading(false);
     }
   };
 
   return (
-    <Container maxW="md" py={12}>
-      <VStack spacing={8} align="stretch">
-        <Box textAlign="center">
-          <Text fontSize="3xl" fontWeight="bold" mb={2}>
-            Welcome to ChatGenius
-          </Text>
-          <Text color="gray.600">Sign in to continue</Text>
-        </Box>
-
-        {isGuestMode ? (
-          <form onSubmit={handleGuestLogin}>
-            <VStack spacing={4}>
-              <FormControl isRequired>
-                <FormLabel>Choose a username</FormLabel>
-                <Input
-                  value={guestUsername}
-                  onChange={(e) => setGuestUsername(e.target.value)}
-                  placeholder="Enter username"
-                />
-              </FormControl>
-              <Button colorScheme="blue" type="submit" width="full">
-                Continue as Guest
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => setIsGuestMode(false)}
-                width="full"
-              >
-                Back to Login
-              </Button>
-            </VStack>
-          </form>
-        ) : (
-          <>
-            <form onSubmit={handleEmailLogin}>
-              <VStack spacing={4}>
-                <FormControl isRequired>
-                  <FormLabel>Email</FormLabel>
-                  <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Enter your email"
-                  />
-                </FormControl>
-                <FormControl isRequired>
-                  <FormLabel>Password</FormLabel>
-                  <InputGroup>
-                    <Input
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Enter your password"
-                    />
-                    <InputRightElement>
-                      <IconButton
-                        aria-label={showPassword ? 'Hide password' : 'Show password'}
-                        icon={showPassword ? <FaEyeSlash /> : <FaEye />}
-                        variant="ghost"
-                        onClick={() => setShowPassword(!showPassword)}
-                      />
-                    </InputRightElement>
-                  </InputGroup>
-                </FormControl>
-                <Button colorScheme="blue" type="submit" width="full">
-                  Sign In
-                </Button>
-              </VStack>
-            </form>
-
-            <Stack spacing={4}>
-              <Divider />
-              <Text textAlign="center" color="gray.500">
-                Or continue with
-              </Text>
-              <HStack spacing={4}>
-                <Button
-                  as="a"
-                  href={auth.googleAuthUrl}
-                  flex={1}
-                  leftIcon={<Icon as={FaGoogle} />}
-                  colorScheme="red"
-                  variant="outline"
-                >
-                  Google
-                </Button>
-                <Button
-                  as="a"
-                  href={auth.githubAuthUrl}
-                  flex={1}
-                  leftIcon={<Icon as={FaGithub} />}
-                  colorScheme="gray"
-                  variant="outline"
-                >
-                  GitHub
-                </Button>
-              </HStack>
-              <Button
-                variant="ghost"
-                onClick={() => setIsGuestMode(true)}
-              >
-                Continue as Guest
-              </Button>
-            </Stack>
-
-            <Text textAlign="center" mt={4}>
-              Don't have an account?{' '}
-              <Link to="/register" style={{ color: 'blue' }}>
-                Sign up
-              </Link>
+    <Container maxW="lg" py={{ base: '12', md: '24' }} px={{ base: '0', sm: '8' }}>
+      <Box
+        py={{ base: '8', sm: '8' }}
+        px={{ base: '4', sm: '10' }}
+        bg="white"
+        boxShadow={{ base: 'none', sm: 'md' }}
+        borderRadius={{ base: 'none', sm: 'xl' }}
+      >
+        <form onSubmit={handleEmailLogin}>
+          <VStack spacing="6">
+            <Text fontSize="2xl" fontWeight="bold">
+              Welcome to ChatGenius
             </Text>
-          </>
-        )}
-      </VStack>
+            <FormControl isRequired>
+              <FormLabel>Email</FormLabel>
+              <Input
+                name="username"
+                type="email"
+                autoComplete="username"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </FormControl>
+            <FormControl isRequired>
+              <FormLabel>Password</FormLabel>
+              <InputGroup>
+                <Input
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <InputRightElement>
+                  <IconButton
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    icon={showPassword ? <FaEyeSlash /> : <FaEye />}
+                    variant="ghost"
+                    onClick={() => setShowPassword(!showPassword)}
+                  />
+                </InputRightElement>
+              </InputGroup>
+              <Box display="flex" justifyContent="flex-end" mt={2}>
+                <Button
+                  variant="link"
+                  colorScheme="blue"
+                  size="sm"
+                  onClick={() => navigate('/forgot-password')}
+                >
+                  Forgot password?
+                </Button>
+              </Box>
+            </FormControl>
+            <Button
+              type="submit"
+              colorScheme="blue"
+              width="full"
+              isLoading={isLoading}
+            >
+              Sign in
+            </Button>
+            <Divider />
+            <Button
+              width="full"
+              leftIcon={<FaGoogle />}
+              onClick={() => window.location.href = auth.googleAuthUrl}
+            >
+              Continue with Google
+            </Button>
+            <Button
+              width="full"
+              leftIcon={<FaGithub />}
+              onClick={() => window.location.href = auth.githubAuthUrl}
+            >
+              Continue with GitHub
+            </Button>
+            <Divider />
+            <FormControl>
+              <Input
+                placeholder="Enter username for guest access"
+                value={guestUsername}
+                onChange={(e) => setGuestUsername(e.target.value)}
+              />
+            </FormControl>
+            <Button
+              width="full"
+              variant="outline"
+              onClick={handleGuestLogin}
+              isLoading={isGuestLoading}
+            >
+              Continue as Guest
+            </Button>
+            <Text>
+              Don't have an account?{' '}
+              <Button
+                variant="link"
+                colorScheme="blue"
+                onClick={() => navigate('/register')}
+              >
+                Sign up
+              </Button>
+            </Text>
+          </VStack>
+        </form>
+      </Box>
     </Container>
   );
 };

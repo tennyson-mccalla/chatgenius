@@ -128,6 +128,13 @@ class AuthService {
       throw new Error('Invalid refresh token');
     }
   }
+
+  async logout(userId: string): Promise<void> {
+    await User.findByIdAndUpdate(userId, {
+      status: 'offline',
+      lastSeen: new Date()
+    });
+  }
 }
 
 export default new AuthService();

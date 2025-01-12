@@ -65,9 +65,39 @@ export const auth = {
   getCurrentUser: () =>
     api.get('/auth/me'),
 
+  logout: () =>
+    api.post('/auth/logout'),
+
   // OAuth URLs
   googleAuthUrl: `${API_URL}/auth/google`,
   githubAuthUrl: `${API_URL}/auth/github`,
+
+  forgotPassword: (email: string) =>
+    api.post('/auth/forgot-password', { email }),
+
+  resetPassword: (token: string, newPassword: string) =>
+    api.post('/auth/reset-password', { token, newPassword }),
+};
+
+// Channel endpoints
+export const channels = {
+  getAll: () =>
+    api.get('/channels'),
+
+  getById: (channelId: string) =>
+    api.get(`/channels/${channelId}`),
+
+  create: (data: { name: string; description?: string; isPrivate: boolean; members?: string[] }) =>
+    api.post('/channels', data),
+
+  update: (channelId: string, data: { name?: string; description?: string; isPrivate?: boolean }) =>
+    api.patch(`/channels/${channelId}`, data),
+
+  addMember: (channelId: string, userId: string) =>
+    api.post(`/channels/${channelId}/members`, { userId }),
+
+  removeMember: (channelId: string, userId: string) =>
+    api.delete(`/channels/${channelId}/members/${userId}`),
 };
 
 export default api;
