@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { LoginPage } from './pages/LoginPage';
+import { ChatPage } from './pages/ChatPage';
 
 // Create a client for React Query
 const queryClient = new QueryClient();
@@ -25,7 +26,7 @@ function App() {
                 path="/"
                 element={
                   <ProtectedRoute>
-                    <div>Chat Interface (coming soon)</div>
+                    <ChatPage />
                   </ProtectedRoute>
                 }
               />
