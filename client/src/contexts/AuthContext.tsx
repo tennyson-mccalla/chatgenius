@@ -1,67 +1,81 @@
-import { createContext, useContext, useEffect, ReactNode } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { createContext, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
+import api from '../services/api';
 
-interface AuthContextType {
-  handleOAuthCallback: (searchParams: URLSearchParams) => void;
+export interface AuthContextType {
+  user: any;
+  token: string | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => void;
 }
 
-// Create the context with a default value
-const AuthContext = createContext<AuthContextType>({
-  handleOAuthCallback: () => {},
+export const AuthContext = createContext<AuthContextType>({
+  user: null,
+  token: null,
+  isAuthenticated: false,
+  isLoading: true,
+  login: async () => {},
+  logout: () => {},
 });
 
-// Custom hook to use the auth context
-export function useAuth() {
-  return useContext(AuthContext);
-}
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const {
+    user,
+    isAuthenticated,
+    isLoading,
+    login: storeLogin,
+    logout: storeLogout,
+    checkAuth
+  } = useAuthStore();
 
-const PUBLIC_PATHS = ['/login', '/register', '/oauth/callback'];
+  // Get token from localStorage
+  const token = localStorage.getItem('token');
 
-// Provider component
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const { setUser, checkAuth } = useAuthStore();
-
+  // Check auth status on mount
   useEffect(() => {
-    // Skip auth check on public paths
-    if (!PUBLIC_PATHS.includes(location.pathname)) {
-      checkAuth();
-    }
-  }, [location.pathname]);
+    console.log('AuthProvider: Checking auth status on mount');
+    checkAuth();
+  }, [checkAuth]);
 
-  const handleOAuthCallback = (searchParams: URLSearchParams) => {
-    const token = searchParams.get('token');
-    const refreshToken = searchParams.get('refreshToken');
-    const error = searchParams.get('error');
+  // Update API headers whenever token changes
+  useEffect(() => {
+    console.log('AuthProvider: Token changed', {
+      hasToken: !!token,
+      tokenPrefix: token ? token.substring(0, 20) + '...' : null,
+      isAuthenticated
+    });
 
-    if (error) {
-      navigate('/login?error=' + error);
-      return;
+    if (token) {
+      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    } else {
+      delete api.defaults.headers.common['Authorization'];
     }
+  }, [token, isAuthenticated]);
 
-    if (token && refreshToken) {
-      localStorage.setItem('token', token);
-      localStorage.setItem('refreshToken', refreshToken);
-      navigate('/');
-    }
+  const login = async (email: string, password: string) => {
+    console.log('AuthProvider: Login attempt');
+    await storeLogin(email, password);
   };
 
-  useEffect(() => {
-    // Handle OAuth callback
-    if (location.pathname === '/oauth/callback') {
-      handleOAuthCallback(new URLSearchParams(location.search));
-    }
-  }, [location]);
-
-  const value = {
-    handleOAuthCallback,
+  const logout = () => {
+    console.log('AuthProvider: Logout attempt');
+    storeLogout();
   };
 
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        isAuthenticated,
+        isLoading,
+        login,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
-}
+};

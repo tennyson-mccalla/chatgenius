@@ -38,29 +38,65 @@ class ChannelService {
     return channel.populate(['members', 'createdBy']);
   }
 
-  async getChannels(userId: string): Promise<IChannel[]> {
-    // Get all public channels and private channels where user is a member
-    const channels = await Channel.find({
-      $or: [
-        { isPrivate: false },
-        { members: userId }
-      ],
-      isDM: false
-    })
-    .populate(['members', 'createdBy'])
-    .sort({ createdAt: -1 });
+  async getChannels(userId: string) {
+    try {
+      console.log('Fetching channels for user:', userId);
 
-    return channels;
+      const channels = await Channel.find({
+        isDM: false
+      })
+      .populate('createdBy', 'username avatar')
+      .lean();
+
+      const channelsWithAccess = channels.map(channel => {
+        const isCreator = channel.createdBy?._id.toString() === userId;
+        const isMember = channel.members.some(memberId => memberId.toString() === userId);
+        const hasAccess = !channel.isPrivate || isMember || isCreator;
+
+        console.log('Channel access check:', {
+          channelId: channel._id,
+          channelName: channel.name,
+          isPrivate: channel.isPrivate,
+          isCreator,
+          isMember,
+          hasAccess
+        });
+
+        return {
+          ...channel,
+          hasAccess
+        };
+      });
+
+      return channelsWithAccess;
+    } catch (error) {
+      console.error('Error fetching channels:', error);
+      throw error;
+    }
   }
 
   async getChannelById(channelId: string, userId: string): Promise<IChannel | null> {
-    const channel = await Channel.findOne({
+    // Try to find by ID first
+    let channel = await Channel.findOne({
       _id: channelId,
       $or: [
         { isPrivate: false },
-        { members: userId }
+        { members: userId },
+        { createdBy: userId }
       ]
     }).populate(['members', 'createdBy']);
+
+    // If not found by ID, try to find by name
+    if (!channel) {
+      channel = await Channel.findOne({
+        name: channelId,  // Try using the channelId as a name
+        $or: [
+          { isPrivate: false },
+          { members: userId },
+          { createdBy: userId }
+        ]
+      }).populate(['members', 'createdBy']);
+    }
 
     return channel;
   }
@@ -138,6 +174,32 @@ class ChannelService {
 
     await channel.save();
     return channel.populate(['members', 'createdBy']);
+  }
+
+  async addUserToPublicChannels(userId: string): Promise<void> {
+    console.log('Adding user to all public channels:', userId);
+
+    // Find all public channels
+    const publicChannels = await Channel.find({
+      isPrivate: false,
+      isDM: false,
+      members: { $ne: userId } // Only get channels where user is not already a member
+    });
+
+    if (publicChannels.length === 0) {
+      console.log('No public channels found to add user to');
+      return;
+    }
+
+    console.log(`Found ${publicChannels.length} public channels to add user to`);
+
+    // Add user to all public channels
+    await Channel.updateMany(
+      { _id: { $in: publicChannels.map(c => c._id) } },
+      { $addToSet: { members: userId } }
+    );
+
+    console.log('User added to all public channels successfully');
   }
 }
 

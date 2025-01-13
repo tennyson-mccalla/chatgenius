@@ -2,25 +2,23 @@ import mongoose, { Document, Schema } from 'mongoose';
 import { IUser } from './User';
 import { IChannel } from './Channel';
 
-interface IReaction {
-  emoji: string;
-  users: mongoose.Types.ObjectId[] | IUser[];
-}
-
 export interface IMessage extends Document {
   content: string;
   channel: mongoose.Types.ObjectId | IChannel;
   sender: mongoose.Types.ObjectId | IUser;
-  parentMessage?: mongoose.Types.ObjectId | IMessage;
-  reactions: IReaction[];
+  parentMessage?: mongoose.Types.ObjectId | IMessage; // For thread replies
+  reactions?: {
+    emoji: string;
+    users: (mongoose.Types.ObjectId | IUser)[];
+  }[];
   attachments?: {
     url: string;
     type: string;
     name: string;
   }[];
+  edited: boolean;
   createdAt: Date;
   updatedAt: Date;
-  isEdited: boolean;
 }
 
 const messageSchema = new Schema<IMessage>({
@@ -40,18 +38,21 @@ const messageSchema = new Schema<IMessage>({
     ref: 'Message'
   },
   reactions: [{
-    emoji: { type: String, required: true },
+    emoji: String,
     users: [{
       type: Schema.Types.ObjectId,
       ref: 'User'
     }]
   }],
   attachments: [{
-    url: { type: String, required: true },
-    type: { type: String, required: true },
-    name: { type: String, required: true }
+    url: String,
+    type: String,
+    name: String
   }],
-  isEdited: { type: Boolean, default: false }
+  edited: {
+    type: Boolean,
+    default: false
+  }
 }, {
   timestamps: true
 });
@@ -59,9 +60,5 @@ const messageSchema = new Schema<IMessage>({
 // Indexes for faster queries
 messageSchema.index({ channel: 1, createdAt: -1 });
 messageSchema.index({ parentMessage: 1, createdAt: 1 });
-messageSchema.index({ sender: 1, createdAt: -1 });
-
-// Full-text search index
-messageSchema.index({ content: 'text' });
 
 export const Message = mongoose.model<IMessage>('Message', messageSchema);

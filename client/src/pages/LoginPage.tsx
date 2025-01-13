@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Button,
@@ -20,7 +20,7 @@ import {
 import { FaGoogle, FaGithub, FaEye, FaEyeSlash } from 'react-icons/fa';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { auth } from '../services/api';
+import api, { auth } from '../services/api';
 
 export const LoginPage = () => {
   const [email, setEmail] = useState('');

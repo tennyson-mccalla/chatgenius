@@ -1,21 +1,27 @@
 import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
-import { Strategy as JwtStrategy, ExtractJwt } from 'passport-jwt';
-import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+import { Strategy as JwtStrategy, ExtractJwt, VerifyCallback } from 'passport-jwt';
 import bcrypt from 'bcryptjs';
 import { User, IUser } from '../models';
 import { jwtConfig } from './jwt.config';
 
 // Passport serialization
 passport.serializeUser((user: Express.User, done) => {
+  console.log('Serializing user:', (user as IUser).id);
   done(null, (user as IUser).id);
 });
 
 passport.deserializeUser(async (id: string, done) => {
+  console.log('Deserializing user:', id);
   try {
     const user = await User.findById(id);
+    if (!user) {
+      console.log('User not found during deserialization:', id);
+      return done(null, false);
+    }
     done(null, user);
   } catch (error) {
+    console.error('Error deserializing user:', error);
     done(error);
   }
 });
@@ -27,91 +33,63 @@ passport.use(new LocalStrategy(
     passwordField: 'password'
   },
   async (email: string, password: string, done) => {
+    console.log('Attempting local strategy authentication:', { email });
     try {
       const user = await User.findOne({ email });
 
       if (!user) {
+        console.log('User not found:', { email });
         return done(null, false, { message: 'User not found' });
       }
 
       if (!user.password) {
+        console.log('User has no password (OAuth user):', { email });
         return done(null, false, { message: 'Invalid login method' });
       }
 
       const isMatch = await bcrypt.compare(password, user.password);
       if (!isMatch) {
+        console.log('Invalid password for user:', { email });
         return done(null, false, { message: 'Invalid password' });
       }
 
-      return done(null, user);
+      console.log('Local authentication successful:', { userId: user._id });
+      const userWithId = {
+        ...user.toObject(),
+        id: user._id
+      };
+      return done(null, userWithId);
     } catch (error) {
+      console.error('Error in local strategy:', error);
       return done(error);
     }
   }
 ));
 
 // JWT Strategy for token authentication
-passport.use(new JwtStrategy(
-  {
-    jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-    secretOrKey: jwtConfig.secret.toString()
-  },
-  async (jwtPayload: { id: string }, done) => {
-    try {
-      const user = await User.findById(jwtPayload.id);
-      if (!user) {
-        return done(null, false);
-      }
-      return done(null, user);
-    } catch (error) {
-      return done(error);
+passport.use(new JwtStrategy({
+  jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+  secretOrKey: jwtConfig.secret.toString(),
+}, async (jwtPayload: { id: string }, done: (error: any, user?: any, info?: any) => void) => {
+  try {
+    console.log('Verifying JWT token:', { userId: jwtPayload.id });
+    const user = await User.findById(jwtPayload.id);
+
+    if (!user) {
+      console.log('User not found for JWT token:', { userId: jwtPayload.id });
+      return done(null, false);
     }
+
+    const userWithId = {
+      ...user.toObject(),
+      id: user._id
+    };
+    console.log('JWT verification successful:', { userId: user._id });
+    return done(null, userWithId);
+  } catch (error) {
+    console.error('Error verifying JWT:', error);
+    return done(error, false);
   }
-));
-
-// Google OAuth Strategy
-if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-  passport.use(
-    new GoogleStrategy(
-      {
-        clientID: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: process.env.GOOGLE_CALLBACK_URL || '',
-        scope: ['profile', 'email']
-      },
-      async (accessToken: string, refreshToken: string, profile: any, done: any) => {
-        try {
-          // Check if user exists
-          let user = await User.findOne({
-            'oauthProviders.google': profile.id,
-          });
-
-          if (!user) {
-            // Create new user if doesn't exist
-            user = await User.create({
-              username: profile.displayName || `google_${profile.id}`,
-              email: profile.emails?.[0]?.value,
-              oauthProviders: {
-                google: profile.id,
-              },
-              avatar: profile.photos?.[0]?.value,
-              isGuest: false,
-              status: 'online',
-            });
-          }
-
-          // Update last seen
-          user.lastSeen = new Date();
-          user.status = 'online';
-          await user.save();
-
-          return done(null, user);
-        } catch (error) {
-          return done(error);
-        }
-      }
-    )
-  );
-}
+}));
 
 export default passport;

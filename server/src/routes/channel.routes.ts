@@ -27,10 +27,15 @@ router.post('/', authenticate, async (req, res) => {
 // Get all channels (public + private where user is member)
 router.get('/', authenticate, async (req, res) => {
   try {
-    const channels = await channelService.getChannels(req.user.id);
+    const userId = req.user?.id;
+
+    // Get all channels where user is a member OR channel is public
+    const channels = await channelService.getChannels(userId);
+
     res.json(channels);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('Error fetching channels:', error);
+    res.status(500).json({ message: 'Error fetching channels' });
   }
 });
 

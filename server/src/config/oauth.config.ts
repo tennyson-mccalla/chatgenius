@@ -4,6 +4,7 @@ import { Profile as GoogleProfile } from 'passport-google-oauth20';
 import { Profile as GitHubProfile } from 'passport-github2';
 import passport from 'passport';
 import { User } from '../models';
+import channelService from '../services/channel.service';
 
 // Configure Google OAuth Strategy
 const googleStrategy = new GoogleStrategy(
@@ -15,24 +16,23 @@ const googleStrategy = new GoogleStrategy(
   },
   async (accessToken: string, refreshToken: string, profile: GoogleProfile, done: any) => {
     try {
-      console.log('Google OAuth configuration:', {
-        callbackURL: process.env.GOOGLE_CALLBACK_URL,
-        clientIDLength: process.env.GOOGLE_CLIENT_ID?.length,
-        hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET
-      });
-
-      console.log('Google OAuth callback received:', {
+      console.log('Google OAuth profile received:', {
         id: profile.id,
         displayName: profile.displayName,
-        emails: profile.emails?.map(e => e.value) || []
+        emails: profile.emails?.map(e => e.value),
+        photos: profile.photos?.map(p => p.value)
       });
 
       // Check if user exists
       let user = await User.findOne({
-        'oauthProviders.google': profile.id,
+        $or: [
+          { 'oauthProviders.google': profile.id },
+          { email: profile.emails?.[0]?.value }
+        ]
       });
 
       if (!user) {
+        console.log('Creating new user for Google OAuth');
         // Create new user if doesn't exist
         user = await User.create({
           username: profile.displayName || `google_${profile.id}`,
@@ -43,15 +43,33 @@ const googleStrategy = new GoogleStrategy(
           avatar: profile.photos?.[0]?.value,
           isGuest: false,
           status: 'online',
+          lastSeen: new Date()
         });
+
+        // Add user to public channels
+        await channelService.addUserToPublicChannels(user._id.toString());
+        console.log('New user created:', { userId: user._id });
+      } else {
+        console.log('Existing user found:', { userId: user._id });
+        // Update user info
+        user.lastSeen = new Date();
+        user.status = 'online';
+        if (!user.oauthProviders?.google) {
+          user.oauthProviders = {
+            ...user.oauthProviders,
+            google: profile.id
+          };
+        }
+        await user.save();
       }
 
-      // Update last seen
-      user.lastSeen = new Date();
-      user.status = 'online';
-      await user.save();
+      // Add id field for consistency
+      const userWithId = {
+        ...user.toObject(),
+        id: user._id
+      };
 
-      return done(null, user);
+      return done(null, userWithId);
     } catch (error) {
       console.error('Error in Google OAuth strategy:', error);
       return done(error);
@@ -75,34 +93,22 @@ const githubStrategy = new GitHubStrategy(
         hasClientSecret: !!process.env.GITHUB_CLIENT_SECRET
       });
 
-      console.log('GitHub OAuth callback received:', {
+      console.log('GitHub OAuth profile received:', {
         id: profile.id,
         username: profile.username,
         displayName: profile.displayName,
-        emails: profile.emails?.map(e => e.value) || []
+        emails: profile.emails?.map(e => e.value) || [],
+        photos: profile.photos?.map(p => p.value) || []
       });
 
-      // First try to find user by GitHub ID
+      // Check if user exists
       let user = await User.findOne({
         'oauthProviders.github': profile.id,
       });
 
-      // If no user found by GitHub ID, try to find by email
-      if (!user && profile.emails?.[0]?.value) {
-        user = await User.findOne({ email: profile.emails[0].value });
-
-        // If user exists with this email, update their GitHub provider
-        if (user) {
-          user.oauthProviders = {
-            ...user.oauthProviders,
-            github: profile.id
-          };
-          await user.save();
-        }
-      }
-
-      // If still no user, create new one
       if (!user) {
+        console.log('Creating new user for GitHub OAuth');
+        // Create new user if doesn't exist
         user = await User.create({
           username: profile.username || profile.displayName || `github_${profile.id}`,
           email: profile.emails?.[0]?.value,
@@ -113,6 +119,9 @@ const githubStrategy = new GitHubStrategy(
           isGuest: false,
           status: 'online',
         });
+        console.log('New user created:', { userId: user.id });
+      } else {
+        console.log('Existing user found:', { userId: user.id });
       }
 
       // Update last seen
@@ -131,5 +140,3 @@ const githubStrategy = new GitHubStrategy(
 // Register strategies with passport
 passport.use(googleStrategy);
 passport.use(githubStrategy);
-
-export default passport;

@@ -8,82 +8,45 @@ import {
   Spacer,
   HStack,
   Avatar,
+  Icon,
 } from '@chakra-ui/react';
 import { FaSignOutAlt } from 'react-icons/fa';
 import { useAuthStore } from '../../store/authStore';
+import { ChannelList } from '../ChannelList';
+import { OnlineUsersList } from '../OnlineUsersList';
 
 export const Sidebar = () => {
   const sectionBg = useColorModeValue('gray.100', 'gray.700');
   const { user, logout } = useAuthStore();
 
   return (
-    <VStack h="full" spacing={0} align="stretch">
-      {/* Header */}
-      <Box p={4} bg={sectionBg}>
-        <Text fontSize="lg" fontWeight="bold">
-          ChatGenius
-        </Text>
-      </Box>
-
-      <Divider />
-
-      {/* Channels Section */}
-      <Box p={4}>
-        <Text
-          textTransform="uppercase"
-          fontSize="sm"
-          fontWeight="bold"
-          mb={2}
-          color="gray.600"
-        >
-          Channels
-        </Text>
-        <Button
-          variant="ghost"
-          justifyContent="flex-start"
-          width="full"
-          leftIcon={<Text fontSize="lg">#</Text>}
-        >
-          general
-        </Button>
-      </Box>
-
-      <Divider />
-
-      {/* Direct Messages Section */}
-      <Box p={4}>
-        <Text
-          textTransform="uppercase"
-          fontSize="sm"
-          fontWeight="bold"
-          mb={2}
-          color="gray.600"
-        >
-          Direct Messages
-        </Text>
-        {/* We'll add the list of users here */}
-      </Box>
-
-      <Spacer />
-
-      {/* User Profile Section */}
-      <Box p={4} bg={sectionBg} mt="auto">
-        <HStack spacing={3} justify="space-between">
-          <HStack spacing={3}>
-            <Avatar size="sm" name={user?.username} />
-            <Text fontWeight="medium">{user?.username}</Text>
-          </HStack>
+    <Box
+      as="nav"
+      pos="fixed"
+      left="0"
+      h="100vh"
+      w="250px"
+      bg="gray.800"
+      color="white"
+      overflowY="auto"
+    >
+      <VStack h="full" align="stretch" spacing={0}>
+        <ChannelList />
+        <Box flex="1" />
+        <OnlineUsersList />
+        <Box p={4} borderTop="1px" borderColor="gray.700">
           <Button
-            size="sm"
+            leftIcon={<Icon as={FaSignOutAlt} />}
+            colorScheme="gray"
             variant="ghost"
+            size="sm"
+            width="full"
             onClick={logout}
-            aria-label="Logout"
-            icon={<FaSignOutAlt />}
           >
             Logout
           </Button>
-        </HStack>
-      </Box>
-    </VStack>
+        </Box>
+      </VStack>
+    </Box>
   );
 };

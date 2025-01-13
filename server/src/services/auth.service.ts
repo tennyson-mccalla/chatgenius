@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { User, IUser } from '../models';
 import { jwtConfig } from '../config/jwt.config';
+import channelService from './channel.service';
 
 interface RegisterParams {
   username: string;
@@ -33,7 +34,7 @@ class AuthService {
     return sanitizedUser;
   }
 
-  async generateTokensForUser(userId: string): Promise<{ token: string; refreshToken: string }> {
+  async generateTokens(userId: string): Promise<{ token: string; refreshToken: string }> {
     return AuthService.generateTokens(userId);
   }
 
@@ -59,6 +60,9 @@ class AuthService {
       isGuest: false
     });
 
+    // Add user to public channels
+    await channelService.addUserToPublicChannels(user._id.toString());
+
     // Generate tokens
     const { token, refreshToken } = AuthService.generateTokens(user._id);
 
@@ -81,13 +85,16 @@ class AuthService {
       throw new Error('Invalid credentials');
     }
 
-    // Generate tokens
-    const { token, refreshToken } = AuthService.generateTokens(user._id);
-
     // Update last seen
     user.lastSeen = new Date();
     user.status = 'online';
     await user.save();
+
+    // Add user to public channels
+    await channelService.addUserToPublicChannels(user._id.toString());
+
+    // Generate tokens with the correct userId
+    const { token, refreshToken } = AuthService.generateTokens(user._id.toString());
 
     return {
       user: AuthService.sanitizeUser(user),
@@ -97,21 +104,43 @@ class AuthService {
   }
 
   async createGuestUser(username: string): Promise<AuthResponse> {
-    // Check if username is taken
-    const existingUser = await User.findOne({ username });
+    let finalUsername = username;
+    let existingUser = await User.findOne({ username: finalUsername });
+
+    // If username exists and belongs to a guest, generate a new unique username
     if (existingUser) {
-      throw new Error('Username is taken');
+      if (!existingUser.isGuest) {
+        throw new Error('Username is taken by a registered user');
+      }
+
+      // Try up to 10 times to find a unique username
+      for (let i = 1; i <= 10; i++) {
+        const randomNum = Math.floor(Math.random() * 1000);
+        finalUsername = `${username}_${randomNum}`;
+        existingUser = await User.findOne({ username: finalUsername });
+        if (!existingUser) break;
+      }
+
+      // If we couldn't find a unique username after 10 tries, use timestamp
+      if (existingUser) {
+        finalUsername = `${username}_${Date.now()}`;
+      }
     }
 
-    // Create guest user
+    // Create guest user with the final username
     const user = await User.create({
-      username,
+      username: finalUsername,
+      email: `${finalUsername}@guest.chat`,
       isGuest: true,
-      status: 'online'
+      status: 'online',
+      lastSeen: new Date()
     });
 
     // Generate tokens
     const { token, refreshToken } = AuthService.generateTokens(user._id);
+
+    // Add user to public channels
+    await channelService.addUserToPublicChannels(user._id);
 
     return {
       user: AuthService.sanitizeUser(user),

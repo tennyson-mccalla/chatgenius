@@ -1,13 +1,13 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
-
 const api = axios.create({
-  baseURL: API_URL,
-  withCredentials: true
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
 
-// Request interceptor to add auth token
+// Add a request interceptor to always use the latest token
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
@@ -15,41 +15,6 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
-
-// Response interceptor to handle token refresh
-api.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
-
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-
-      try {
-        const refreshToken = localStorage.getItem('refreshToken');
-        if (!refreshToken) {
-          throw new Error('No refresh token');
-        }
-
-        const response = await api.post('/auth/refresh-token', { refreshToken });
-        const { token, refreshToken: newRefreshToken } = response.data;
-
-        localStorage.setItem('token', token);
-        localStorage.setItem('refreshToken', newRefreshToken);
-
-        originalRequest.headers.Authorization = `Bearer ${token}`;
-        return api(originalRequest);
-      } catch (refreshError) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('refreshToken');
-        window.location.href = '/login';
-        return Promise.reject(refreshError);
-      }
-    }
-
-    return Promise.reject(error);
-  }
-);
 
 // Auth endpoints
 export const auth = {
@@ -69,8 +34,8 @@ export const auth = {
     api.post('/auth/logout'),
 
   // OAuth URLs
-  googleAuthUrl: `${API_URL}/auth/google`,
-  githubAuthUrl: `${API_URL}/auth/github`,
+  googleAuthUrl: `${import.meta.env.VITE_API_URL || 'http://localhost:3000/api'}/auth/google`,
+  githubAuthUrl: `${import.meta.env.VITE_API_URL || 'http://localhost:3000/api'}/auth/github`,
 
   forgotPassword: (email: string) =>
     api.post('/auth/forgot-password', { email }),
@@ -84,14 +49,17 @@ export const channels = {
   getAll: () =>
     api.get('/channels'),
 
-  getById: (channelId: string) =>
-    api.get(`/channels/${channelId}`),
-
-  create: (data: { name: string; description?: string; isPrivate: boolean; members?: string[] }) =>
+  create: (data: { name: string; description?: string; isPrivate?: boolean }) =>
     api.post('/channels', data),
+
+  get: (channelId: string) =>
+    api.get(`/channels/${channelId}`),
 
   update: (channelId: string, data: { name?: string; description?: string; isPrivate?: boolean }) =>
     api.patch(`/channels/${channelId}`, data),
+
+  delete: (channelId: string) =>
+    api.delete(`/channels/${channelId}`),
 
   addMember: (channelId: string, userId: string) =>
     api.post(`/channels/${channelId}/members`, { userId }),
