@@ -1,142 +1,185 @@
-import React, { useEffect, useState } from 'react';
-import { Box, Flex, Text, useToast, Center, VStack, Icon, Spinner } from '@chakra-ui/react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { FaComments } from 'react-icons/fa';
-import { ChannelList } from '../components/ChannelList';
+import React, { useEffect, useRef, useState } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../store/authStore';
+import { useWebSocket } from '../contexts/WebSocketContext';
+import { useChannelStore } from '../store/channel/store';
+import { useMessageStore } from '../store/message/store';
+import { WebSocketMessageType } from '../types/websocket.types';
+import Logger from '../utils/logger';
 import { MessageList } from '../components/MessageList';
 import { MessageInput } from '../components/MessageInput';
-import { useAuthStore } from '../store/authStore';
-import { useChannelStore } from '../store/channelStore';
-import { useSocket } from '../hooks/useSocket';
+import { Box, Grid, GridItem, VStack, Spinner, Center, Text } from '@chakra-ui/react';
+import { Sidebar } from '../components/Sidebar/Sidebar';
+import { OnlineUsersList } from '../components/OnlineUsersList';
+import { ConnectionStatus } from '../components/ConnectionStatus';
+import { initializeSocketHandlers } from '../store/socketHandlers';
 
-interface Channel {
-  _id: string;
-  name: string;
-  description?: string;
-  isPrivate: boolean;
-  isDM: boolean;
-  members: string[];
-  createdBy: string;
-}
+const logState = (prefix: string, data: any) => {
+  Logger.debug(prefix, {
+    context: 'ChannelPage',
+    data: {
+      ...data,
+      timestamp: performance.now().toFixed(2)
+    }
+  });
+};
 
 export const ChannelPage: React.FC = () => {
-  const [isLoading, setIsLoading] = useState(true);
   const { channelId } = useParams<{ channelId: string }>();
-  const { user } = useAuthStore();
-  const { channels, fetchChannels, getChannelByNameOrId, setCurrentChannel } = useChannelStore();
-  const { isConnected } = useSocket();
   const navigate = useNavigate();
-  const toast = useToast();
+  const location = useLocation();
+  const { user } = useAuth();
+  const { socket, isConnected, sendMessage } = useWebSocket();
+  const {
+    channels,
+    currentChannel,
+    setCurrentChannel,
+    setFocusedChannel,
+    fetchChannels,
+  } = useChannelStore();
+  const { setCurrentChannelId } = useMessageStore();
+  const [isLoading, setIsLoading] = useState(true);
+  const mountTime = useRef(performance.now());
+  const handlersRef = useRef<{ cleanup: () => void } | null>(null);
 
-  // Fetch channels if not already loaded
+  // Log initial mount
   useEffect(() => {
-    const loadChannels = async () => {
-      console.log('Loading channels...', {
-        currentChannels: channels.length,
-        isLoading
-      });
+    logState('ChannelPage Mounted', {
+      mountTime: mountTime.current,
+      channelId,
+      isConnected,
+      hasUser: !!user,
+      channelsCount: channels.length,
+      currentChannelId: currentChannel?._id
+    });
 
-      try {
-        if (channels.length === 0) {
-          await fetchChannels();
-        }
-      } catch (error) {
-        console.error('Error loading channels:', error);
-        toast({
-          title: 'Error loading channels',
-          description: 'Please try refreshing the page',
-          status: 'error',
-          duration: 5000,
-          isClosable: true,
-        });
-      } finally {
-        setIsLoading(false);
-        console.log('Finished loading channels', {
-          channelsLoaded: channels.length,
-          isLoading: false
-        });
-      }
+    return () => {
+      handlersRef.current?.cleanup();
     };
-    loadChannels();
-  }, [channels.length, fetchChannels, toast]);
+  }, []);
 
-  // Handle channel navigation
+  // Initialize socket handlers and fetch initial data
   useEffect(() => {
-    if (!isLoading && channelId) {
-      // Try to find the channel by name or ID
-      const channel = getChannelByNameOrId(channelId);
-      if (channel) {
-        setCurrentChannel(channel);
-      } else {
-        console.error('Channel not found:', channelId);
-        toast({
-          title: 'Channel not found',
-          description: 'Redirecting to home',
-          status: 'error',
-          duration: 3000,
-          isClosable: true,
-        });
-        navigate('/channels');
-      }
-    }
-  }, [channelId, channels, isLoading, navigate, toast, getChannelByNameOrId, setCurrentChannel]);
+    if (!socket || !user || !isConnected) return;
 
-  // Show loading state while channels are loading
+    const startTime = performance.now();
+    logState('Starting Channel Init', {
+      channelId,
+      currentChannelId: currentChannel?._id,
+      isConnected,
+      userId: user?._id,
+      startTime: Math.round(startTime - mountTime.current)
+    });
+
+    // Initialize socket handlers
+    handlersRef.current = initializeSocketHandlers(socket, {
+      onInitialized: () => {
+        setIsLoading(false);
+        logState('Channel Init Complete', {
+          channelsCount: channels.length,
+          hasDMs: channels.some(c => c.isDM),
+          isConnected,
+          totalTime: Math.round(performance.now() - startTime),
+        });
+      }
+    });
+
+    // Fetch initial channels if needed
+    if (channels.length === 0) {
+      fetchChannels().catch(error => {
+        console.error('Failed to fetch channels:', error);
+        setIsLoading(false);
+      });
+    }
+  }, [socket, user, isConnected]);
+
+  // Handle channel routing
+  useEffect(() => {
+    if (!isConnected || !user || channels.length === 0 || isLoading) {
+      return;
+    }
+
+    // If no channelId is provided, redirect to the first available channel
+    if (!channelId && channels.length > 0) {
+      const firstChannel = channels[0];
+      navigate(`/channels/${firstChannel._id}`);
+      return;
+    }
+
+    // Find the requested channel
+    const targetChannel = channels.find(ch => ch._id === channelId);
+    if (!targetChannel) {
+      logState('Invalid Channel', {
+        requestedId: channelId,
+        availableChannels: channels.map(ch => ch._id)
+      });
+      // Redirect to first channel if current one is invalid
+      if (channels.length > 0) {
+        navigate(`/channels/${channels[0]._id}`);
+      }
+      return;
+    }
+
+    // Update current channel
+    setCurrentChannel(targetChannel);
+    setFocusedChannel(targetChannel._id);
+    setCurrentChannelId(targetChannel._id);
+
+    // Join the channel
+    sendMessage(WebSocketMessageType.CHANNEL_JOIN, { channelId: targetChannel._id });
+
+    logState('Channel Routing Complete', {
+      channelId: targetChannel._id,
+      channelName: targetChannel.name,
+      isConnected
+    });
+  }, [channelId, isConnected, user, channels, isLoading]);
+
   if (isLoading) {
-    console.log('Rendering loading state', { isLoading, channelsCount: channels.length });
     return (
-      <Flex h="100vh">
-        <Box w="250px" borderRight="1px" borderColor="gray.200" bg="gray.50">
-          <ChannelList />
-        </Box>
-        <Center flex="1">
-          <VStack spacing={4}>
-            <Spinner size="xl" />
-            <Text color="gray.500">Loading channels...</Text>
-          </VStack>
-        </Center>
-      </Flex>
+      <Center h="100vh">
+        <VStack spacing={4}>
+          <Spinner size="xl" />
+          <Text>Loading channels...</Text>
+        </VStack>
+      </Center>
     );
   }
 
-  console.log('Rendering main UI', {
-    channelId,
-    channelsCount: channels.length,
-    currentChannel: channelId ? getChannelByNameOrId(channelId) : null
-  });
-
-  const currentChannel = channelId ? getChannelByNameOrId(channelId) : null;
-
   return (
-    <Flex h="100vh">
-      <Box w="250px" borderRight="1px" borderColor="gray.200" bg="gray.50">
-        <ChannelList />
-      </Box>
+    <Grid
+      templateColumns="250px 1fr 200px"
+      h="100vh"
+      gap={0}
+    >
+      {/* Left sidebar */}
+      <GridItem>
+        <Sidebar />
+      </GridItem>
 
-      {currentChannel ? (
-        <Flex flex="1" direction="column">
-          <Box p={4} borderBottom="1px" borderColor="gray.200">
-            <Text fontSize="xl" fontWeight="bold">#{currentChannel.name}</Text>
-            {currentChannel.description && (
-              <Text color="gray.600">{currentChannel.description}</Text>
-            )}
-          </Box>
-          <MessageList />
-          <MessageInput />
-        </Flex>
-      ) : (
-        <Center flex="1">
-          <VStack spacing={4}>
-            <Icon as={FaComments} boxSize={12} color="gray.400" />
-            <Text fontSize="xl" color="gray.600">
-              Welcome to ChatGenius, {user?.username}!
-            </Text>
-            <Text color="gray.500">
-              Select a channel from the sidebar to start chatting
-            </Text>
-          </VStack>
-        </Center>
-      )}
-    </Flex>
+      {/* Main content */}
+      <VStack
+        align="stretch"
+        spacing={0}
+        h="100vh"
+      >
+        <MessageList />
+        <MessageInput />
+      </VStack>
+
+      {/* Right sidebar */}
+      <VStack
+        align="stretch"
+        p={4}
+        borderLeft="1px"
+        borderColor="gray.200"
+        spacing={4}
+        overflowY="auto"
+        bg="gray.100"
+      >
+        <OnlineUsersList />
+        <ConnectionStatus />
+      </VStack>
+    </Grid>
   );
 };

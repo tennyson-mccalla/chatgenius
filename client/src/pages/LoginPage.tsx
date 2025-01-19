@@ -19,8 +19,10 @@ import {
 } from '@chakra-ui/react';
 import { FaGoogle, FaGithub, FaEye, FaEyeSlash } from 'react-icons/fa';
 import { useNavigate, Link } from 'react-router-dom';
-import { useAuthStore } from '../store/authStore';
-import api, { auth } from '../services/api';
+import { useAuth } from '../store/authStore';
+import { setOAuthState } from '../utils/oauthStorage';
+import Logger from '../utils/logger';
+import api from '../services/api';
 
 export const LoginPage = () => {
   const [email, setEmail] = useState('');
@@ -32,7 +34,7 @@ export const LoginPage = () => {
   const [isGuestLoading, setIsGuestLoading] = useState(false);
   const navigate = useNavigate();
   const toast = useToast();
-  const { login, guestLogin } = useAuthStore();
+  const { login, guestLogin } = useAuth();
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +43,13 @@ export const LoginPage = () => {
       await login(email, password);
       navigate('/');
     } catch (error: any) {
+      Logger.error('Login failed', {
+        context: 'LoginPage',
+        data: {
+          error: error.message,
+          response: error.response?.data
+        }
+      });
       toast({
         title: 'Login failed',
         description: error.response?.data?.message || 'Please check your credentials',
@@ -84,6 +93,38 @@ export const LoginPage = () => {
     }
   };
 
+  const generateState = () => {
+    const array = new Uint8Array(32);
+    window.crypto.getRandomValues(array);
+    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+  };
+
+  const handleGoogleLogin = () => {
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+    const callbackUrl = `${window.location.origin}/auth/callback`;
+    const state = generateState();
+
+    // Store state before redirecting
+    setOAuthState(state);
+
+    // Redirect to Google OAuth endpoint with our state
+    window.location.href = `${baseUrl}/api/auth/google?state=${state}&callbackUrl=${encodeURIComponent(callbackUrl)}`;
+  };
+
+  const handleGithubLogin = () => {
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+    const callbackUrl = `${window.location.origin}/auth/callback`;
+    const state = generateState();
+
+    // Store state before redirecting
+    setOAuthState(state);
+
+    // Redirect to GitHub OAuth endpoint with our state
+    const githubUrl = `${baseUrl}/api/auth/github?state=${state}&callbackUrl=${encodeURIComponent(callbackUrl)}`;
+    console.log('Redirecting to GitHub:', githubUrl);
+    window.location.href = githubUrl;
+  };
+
   return (
     <Container maxW="lg" py={{ base: '12', md: '24' }} px={{ base: '0', sm: '8' }}>
       <Box
@@ -93,102 +134,138 @@ export const LoginPage = () => {
         boxShadow={{ base: 'none', sm: 'md' }}
         borderRadius={{ base: 'none', sm: 'xl' }}
       >
-        <form onSubmit={handleEmailLogin}>
-          <VStack spacing="6">
-            <Text fontSize="2xl" fontWeight="bold">
+        <VStack spacing={8} align="stretch">
+          <Box textAlign="center">
+            <Text fontSize="3xl" fontWeight="bold" mb={2}>
               Welcome to ChatGenius
             </Text>
-            <FormControl isRequired>
-              <FormLabel>Email</FormLabel>
-              <Input
-                name="username"
-                type="email"
-                autoComplete="username"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </FormControl>
-            <FormControl isRequired>
-              <FormLabel>Password</FormLabel>
-              <InputGroup>
-                <Input
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <InputRightElement>
-                  <IconButton
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    icon={showPassword ? <FaEyeSlash /> : <FaEye />}
-                    variant="ghost"
-                    onClick={() => setShowPassword(!showPassword)}
+            <Text color="gray.600">Sign in to continue</Text>
+          </Box>
+
+          {isGuestMode ? (
+            <form onSubmit={handleGuestLogin}>
+              <VStack spacing={4}>
+                <FormControl isRequired>
+                  <FormLabel>Guest Username</FormLabel>
+                  <Input
+                    value={guestUsername}
+                    onChange={(e) => setGuestUsername(e.target.value)}
+                    placeholder="Enter a username"
                   />
-                </InputRightElement>
-              </InputGroup>
-              <Box display="flex" justifyContent="flex-end" mt={2}>
+                </FormControl>
+
                 <Button
-                  variant="link"
                   colorScheme="blue"
-                  size="sm"
-                  onClick={() => navigate('/forgot-password')}
+                  width="full"
+                  type="submit"
+                  isLoading={isGuestLoading}
                 >
-                  Forgot password?
+                  Continue as Guest
                 </Button>
+
+                <Button
+                  variant="ghost"
+                  width="full"
+                  onClick={() => setIsGuestMode(false)}
+                >
+                  Back to Login
+                </Button>
+              </VStack>
+            </form>
+          ) : (
+            <>
+              <form onSubmit={handleEmailLogin}>
+                <VStack spacing={4}>
+                  <FormControl isRequired>
+                    <FormLabel>Email</FormLabel>
+                    <Input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="Enter your email"
+                    />
+                  </FormControl>
+
+                  <FormControl isRequired>
+                    <FormLabel>Password</FormLabel>
+                    <InputGroup>
+                      <Input
+                        type={showPassword ? 'text' : 'password'}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Enter your password"
+                      />
+                      <InputRightElement>
+                        <IconButton
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
+                          icon={showPassword ? <FaEyeSlash /> : <FaEye />}
+                          variant="ghost"
+                          onClick={() => setShowPassword(!showPassword)}
+                        />
+                      </InputRightElement>
+                    </InputGroup>
+                  </FormControl>
+
+                  <Button
+                    colorScheme="blue"
+                    width="full"
+                    type="submit"
+                    isLoading={isLoading}
+                  >
+                    Sign in
+                  </Button>
+                </VStack>
+              </form>
+
+              <VStack spacing={4}>
+                <HStack w="100%">
+                  <Divider />
+                  <Text fontSize="sm" whiteSpace="nowrap" color="gray.500">
+                    or continue with
+                  </Text>
+                  <Divider />
+                </HStack>
+
+                <Button
+                  width="full"
+                  onClick={handleGoogleLogin}
+                  leftIcon={<Icon as={FaGoogle} />}
+                  colorScheme="red"
+                  variant="outline"
+                >
+                  Google
+                </Button>
+
+                <Button
+                  width="full"
+                  onClick={handleGithubLogin}
+                  leftIcon={<Icon as={FaGithub} />}
+                  colorScheme="gray"
+                  variant="outline"
+                >
+                  GitHub
+                </Button>
+
+                <Button
+                  width="full"
+                  onClick={() => setIsGuestMode(true)}
+                  variant="ghost"
+                >
+                  Continue as Guest
+                </Button>
+              </VStack>
+
+              <Box textAlign="center">
+                <Text>
+                  Don't have an account?{' '}
+                  <Link to="/register" style={{ color: 'blue' }}>
+                    Sign up
+                  </Link>
+                </Text>
               </Box>
-            </FormControl>
-            <Button
-              type="submit"
-              colorScheme="blue"
-              width="full"
-              isLoading={isLoading}
-            >
-              Sign in
-            </Button>
-            <Divider />
-            <Button
-              width="full"
-              leftIcon={<FaGoogle />}
-              onClick={() => window.location.href = auth.googleAuthUrl}
-            >
-              Continue with Google
-            </Button>
-            <Button
-              width="full"
-              leftIcon={<FaGithub />}
-              onClick={() => window.location.href = auth.githubAuthUrl}
-            >
-              Continue with GitHub
-            </Button>
-            <Divider />
-            <FormControl>
-              <Input
-                placeholder="Enter username for guest access"
-                value={guestUsername}
-                onChange={(e) => setGuestUsername(e.target.value)}
-              />
-            </FormControl>
-            <Button
-              width="full"
-              variant="outline"
-              onClick={handleGuestLogin}
-              isLoading={isGuestLoading}
-            >
-              Continue as Guest
-            </Button>
-            <Text>
-              Don't have an account?{' '}
-              <Button
-                variant="link"
-                colorScheme="blue"
-                onClick={() => navigate('/register')}
-              >
-                Sign up
-              </Button>
-            </Text>
-          </VStack>
-        </form>
+            </>
+          )}
+        </VStack>
       </Box>
     </Container>
   );
