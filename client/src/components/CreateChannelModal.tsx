@@ -16,8 +16,8 @@ import {
   VStack,
   useToast,
 } from '@chakra-ui/react';
-import { useChannelStore } from '../store/channelStore';
-import { useAuthStore } from '../store/authStore';
+import { useChannelStore } from '../store/channel/store';
+import { useAuth } from '../store/authStore';
 
 interface CreateChannelModalProps {
   isOpen: boolean;
@@ -31,7 +31,7 @@ export const CreateChannelModal = ({ isOpen, onClose }: CreateChannelModalProps)
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const createChannel = useChannelStore(state => state.createChannel);
-  const { user } = useAuthStore();
+  const { user } = useAuth();
   const toast = useToast();
 
   const handleSubmit = async () => {

@@ -16,7 +16,7 @@ import {
 } from '@chakra-ui/react';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
 import { useNavigate, Link } from 'react-router-dom';
-import { useAuthStore } from '../store/authStore';
+import { useAuth } from '../store/authStore';
 
 export const RegisterPage = () => {
   const [username, setUsername] = useState('');
@@ -25,7 +25,7 @@ export const RegisterPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
   const toast = useToast();
-  const { register } = useAuthStore();
+  const { register } = useAuth();
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();

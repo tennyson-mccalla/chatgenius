@@ -1,36 +1,39 @@
-import React from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
-import { Spinner, Center, VStack } from '@chakra-ui/react';
-import { useAuthStore } from '../store/authStore';
+import React, { useMemo } from "react";
+import { Navigate } from "react-router-dom";
+import { useAuth } from "../store/authStore";
+import { WebSocketProvider } from "../contexts/WebSocketContext";
+import { isDev } from "../config";
+
+const wsUrl = isDev ? "ws://localhost:3000/ws" : "wss://api.chatgenius.org/ws";
 
 interface PrivateRouteProps {
   children: React.ReactNode;
 }
 
 export const PrivateRoute: React.FC<PrivateRouteProps> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuthStore();
-  const location = useLocation();
+  const { token, user, authState } = useAuth();
 
-  if (isLoading) {
-    return (
-      <Center h="100vh">
-        <VStack spacing={4}>
-          <Spinner
-            thickness="4px"
-            speed="0.65s"
-            emptyColor="gray.200"
-            color="blue.500"
-            size="xl"
-          />
-        </VStack>
-      </Center>
-    );
+  // Only redirect if we're not authenticated and not in the process of authenticating
+  if (!token || !user) {
+    return <Navigate to="/login" replace />;
   }
 
-  if (!isAuthenticated) {
-    // Redirect to login page but save the attempted url
-    return <Navigate to="/login" state={{ from: location }} replace />;
-  }
+  const wsConfig = useMemo(() => ({
+    url: wsUrl,
+    token,
+    userId: user._id.toString(),
+    username: user.username,
+    reconnect: {
+      maxAttempts: 3,
+      initialDelay: 2000,
+      maxDelay: 10000,
+      timeoutMs: 5000
+    }
+  }), [token, user._id, user.username]);
 
-  return <>{children}</>;
+  return (
+    <WebSocketProvider config={wsConfig}>
+      {children}
+    </WebSocketProvider>
+  );
 };

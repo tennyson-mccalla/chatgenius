@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Tooltip } from '@chakra-ui/react';
-import { usePresenceStore } from '../store/presenceStore';
+import { usePresenceStore } from '../store/presence/store';
 
 interface UserStatusProps {
   userId: string;
@@ -8,27 +8,31 @@ interface UserStatusProps {
 }
 
 export const UserStatus: React.FC<UserStatusProps> = ({ userId, showTooltip = true }) => {
-  const { userPresence } = usePresenceStore();
-  const presenceInfo = userPresence[userId];
-  const status = presenceInfo?.status || 'offline';
+  const { userStatuses } = usePresenceStore();
+  const userStatus = userStatuses[userId];
+  const status = userStatus?.status || 'offline';
 
   const statusColor = status === 'online' ? 'green.500' : 'gray.400';
+  const statusText = status === 'online' ? 'Online' : 'Offline';
 
   const statusDot = (
     <Box
-      w="8px"
-      h="8px"
+      w="10px"
+      h="10px"
       borderRadius="full"
       bg={statusColor}
-      display="inline-block"
-      mr={2}
+      display="inline-flex"
+      alignItems="center"
+      justifyContent="center"
+      mr={3}
       transition="background-color 0.2s"
+      flexShrink={0}
     />
   );
 
   if (showTooltip) {
     return (
-      <Tooltip label={`${status.charAt(0).toUpperCase() + status.slice(1)}`}>
+      <Tooltip label={statusText}>
         {statusDot}
       </Tooltip>
     );

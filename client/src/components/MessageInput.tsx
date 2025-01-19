@@ -1,95 +1,131 @@
-import React, { useState, useRef, useCallback } from 'react';
-import { Box, Input, IconButton, useToast } from '@chakra-ui/react';
+import { useState, useEffect, useRef } from 'react';
+import { Input, InputGroup, InputRightElement, IconButton } from '@chakra-ui/react';
 import { IoSend } from 'react-icons/io5';
-import { useParams } from 'react-router-dom';
-import { useAuthStore } from '../store/authStore';
-import { useSocket } from '../hooks/useSocket';
-import { useChannelStore } from '../store/channelStore';
+import { useWebSocket } from '../contexts/WebSocketContext';
+import { useChannelStore } from '../store/channel/store';
+import { useAuth } from '../store/authStore';
+import { WebSocketMessageType, WebSocketErrorType } from '../types/websocket.types';
 
 interface MessageInputProps {
-  parentMessageId?: string;
-  onMessageSent?: () => void;
+  onError?: (type: WebSocketErrorType, message: string) => void;
 }
 
-export const MessageInput: React.FC<MessageInputProps> = ({ parentMessageId, onMessageSent }) => {
-  const [content, setContent] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const { channelId } = useParams<{ channelId: string }>();
-  const { user } = useAuthStore();
-  const { socket } = useSocket();
+export const MessageInput = ({ onError }: MessageInputProps) => {
+  const [message, setMessage] = useState('');
+  const { socket, isConnected } = useWebSocket();
   const { currentChannel } = useChannelStore();
-  const toast = useToast();
+  const { user } = useAuth();
+  const typingTimeoutRef = useRef<number | null>(null);
+  const isTypingRef = useRef(false);
+  const TYPING_TIMER_LENGTH = 5000;
 
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
+  const sendTypingStart = () => {
+    if (!isConnected || !currentChannel || !user || isTypingRef.current) return;
+
+    console.log('Sending typing_start:', {
+      channelId: currentChannel._id,
+      userId: user._id,
+      username: user.username
+    });
+
+    socket?.send(WebSocketMessageType.TYPING_START, {
+      channelId: currentChannel._id,
+      userId: user._id,
+      username: user.username
+    });
+    isTypingRef.current = true;
+  };
+
+  const sendTypingStop = () => {
+    if (!isConnected || !currentChannel || !user || !isTypingRef.current) return;
+
+    console.log('Sending typing_stop:', {
+      channelId: currentChannel._id,
+      userId: user._id,
+      username: user.username
+    });
+
+    socket?.send(WebSocketMessageType.TYPING_STOP, {
+      channelId: currentChannel._id,
+      userId: user._id,
+      username: user.username
+    });
+    isTypingRef.current = false;
+  };
+
+  const handleTyping = () => {
+    if (!isConnected || !currentChannel || !user) return;
+
+    // Send typing start if not already typing
+    sendTypingStart();
+
+    // Clear existing timeout
+    if (typingTimeoutRef.current) {
+      window.clearTimeout(typingTimeoutRef.current);
+    }
+
+    // Set new timeout to send typing stop
+    typingTimeoutRef.current = window.setTimeout(() => {
+      sendTypingStop();
+      typingTimeoutRef.current = null;
+    }, TYPING_TIMER_LENGTH);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        window.clearTimeout(typingTimeoutRef.current);
+      }
+      // Send typing_stop when component unmounts
+      sendTypingStop();
+    };
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!socket || !currentChannel) {
+      console.error('No socket or channel available');
+      onError?.(WebSocketErrorType.MESSAGE_FAILED, 'No socket or channel available');
+      return;
+    }
 
-    if (!content.trim() || !currentChannel?._id || !user) return;
+    if (!message.trim()) {
+      return;
+    }
 
     try {
-      setIsLoading(true);
-
-      const messageData = {
-        content: content.trim(),
+      socket.send(WebSocketMessageType.MESSAGE, {
+        content: message,
         channelId: currentChannel._id,
-        ...(parentMessageId && { parentMessageId })
-      };
-
-      console.log('Emitting new_message event with message:', messageData);
-      socket?.emit('new_message', messageData);
-
-      // Clear input and notify parent
-      setContent('');
-      onMessageSent?.();
-
-      // Focus the input after sending
-      inputRef.current?.focus();
-    } catch (error) {
-      toast({
-        title: 'Error sending message',
-        description: 'Please try again later',
-        status: 'error',
-        duration: 3000,
-        isClosable: true,
       });
-    } finally {
-      setIsLoading(false);
+      setMessage('');
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      onError?.(WebSocketErrorType.MESSAGE_FAILED, 'Failed to send message');
     }
-  }, [content, currentChannel?._id, user, parentMessageId, socket, onMessageSent, toast]);
-
-  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e as any);
-    }
-  }, [handleSubmit]);
+  };
 
   return (
-    <Box as="form" onSubmit={handleSubmit} p={4} borderTop="1px" borderColor="gray.200">
-      <Box display="flex" alignItems="center" gap={2}>
+    <form onSubmit={handleSubmit} style={{ width: '100%' }}>
+      <InputGroup>
         <Input
-          ref={inputRef}
-          placeholder="Type a message..."
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          onKeyPress={handleKeyPress}
-          disabled={isLoading}
-          autoComplete="off"
-          _focus={{
-            borderColor: 'blue.500',
-            boxShadow: 'none'
+          value={message}
+          onChange={(e) => {
+            setMessage(e.target.value);
+            handleTyping();
           }}
+          placeholder="Type a message..."
+          disabled={!currentChannel}
         />
-        <IconButton
-          aria-label="Send message"
-          icon={<IoSend />}
-          type="submit"
-          isLoading={isLoading}
-          colorScheme="blue"
-          variant="ghost"
-          isDisabled={!content.trim()}
-        />
-      </Box>
-    </Box>
+        <InputRightElement>
+          <IconButton
+            aria-label="Send message"
+            icon={<IoSend />}
+            type="submit"
+            disabled={!message.trim() || !currentChannel}
+          />
+        </InputRightElement>
+      </InputGroup>
+    </form>
   );
 };

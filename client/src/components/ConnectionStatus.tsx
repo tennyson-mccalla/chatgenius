@@ -1,36 +1,72 @@
-import React from 'react';
-import { Box, Text, Spinner } from '@chakra-ui/react';
-import { useSocket } from '../hooks/useSocket';
-import { useAuthStore } from '../store/authStore';
+import React, { useEffect, useRef } from 'react';
+import { useWebSocket } from '../contexts/WebSocketContext';
+import { useToast, Box, Text, Spinner } from '@chakra-ui/react';
+import { WebSocketConnectionState } from '../types/websocket.types';
 
 export const ConnectionStatus: React.FC = () => {
-  const { socket } = useSocket();
-  const { isAuthenticated } = useAuthStore();
+  const { isConnected, connectionState, reconnectAttempt } = useWebSocket();
+  const toast = useToast();
+  const wasConnected = useRef(false);
 
-  // Only show connection status if authenticated and socket is not connected
-  if (!isAuthenticated || socket?.connected) {
+  // Clear any existing toasts on mount
+  useEffect(() => {
+    toast.closeAll();
+  }, []);
+
+  // Track connection state changes
+  useEffect(() => {
+    if (isConnected) {
+      wasConnected.current = true;
+    }
+
+    // Show disconnection toast only if we were previously connected
+    if (wasConnected.current && !isConnected) {
+      toast({
+        title: 'Connection Lost',
+        description: 'Attempting to reconnect...',
+        status: 'warning',
+        duration: null,
+        isClosable: true,
+        position: 'bottom-right',
+        id: 'connection-toast'
+      });
+    } else if (isConnected && wasConnected.current) {
+      toast.close('connection-toast');
+      toast({
+        title: 'Connected',
+        description: 'Chat connection restored',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+        position: 'bottom-right'
+      });
+    }
+  }, [isConnected, connectionState, toast]);
+
+  // Only show the status indicator when disconnected after being connected
+  if (!wasConnected.current || isConnected || connectionState === WebSocketConnectionState.CONNECTING) {
     return null;
   }
 
   return (
     <Box
       position="fixed"
-      top={0}
-      left={0}
-      right={0}
-      p={2}
-      bg="blue.500"
-      color="white"
-      textAlign="center"
+      bottom="4"
+      right="4"
+      bg="red.50"
+      p={3}
+      borderRadius="md"
+      boxShadow="sm"
       display="flex"
       alignItems="center"
-      justifyContent="center"
       gap={2}
-      zIndex={9999}
+      zIndex={1000}
     >
-      <Spinner size="sm" color="white" />
-      <Text fontSize="sm" fontWeight="medium">
-        Connecting to server...
+      <Spinner size="sm" color="red.500" />
+      <Text color="red.700" fontSize="sm">
+        {connectionState === WebSocketConnectionState.RECONNECTING
+          ? `Reconnecting (Attempt ${reconnectAttempt})...`
+          : 'Connection lost. Attempting to reconnect...'}
       </Text>
     </Box>
   );

@@ -1,36 +1,59 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Box, VStack, Text, Avatar, Flex } from '@chakra-ui/react';
-import { usePresenceStore } from '../store/presenceStore';
+import { usePresenceStore } from '../store/presence/store';
+import { useAuth } from '../store/authStore';
+import { UserStatus } from './UserStatus';
 
 export const OnlineUsersList: React.FC = () => {
-  const userPresence = usePresenceStore(state => state.userPresence);
+  const { userStatuses } = usePresenceStore();
+  const { user: currentUser } = useAuth();
+
+  useEffect(() => {
+    console.log('OnlineUsersList: Current presence data:', {
+      totalUsers: Object.keys(userStatuses).length,
+      users: Object.values(userStatuses).map(user => ({
+        id: user._id,
+        username: user.username,
+        status: user.status
+      }))
+    });
+  }, [userStatuses]);
+
+  const onlineUsers = Object.values(userStatuses).filter(
+    user => user.status === 'online'
+  );
+
+  const sortedUsers = [...onlineUsers].sort((a, b) =>
+    a.username.toLowerCase().localeCompare(b.username.toLowerCase())
+  );
+
+  const currentUserId = currentUser?._id?.toString();
 
   return (
-    <Box>
-      <Text fontSize="sm" fontWeight="bold" color="gray.500" mb={2}>
-        ONLINE USERS
+    <Box p={4}>
+      <Text fontSize="sm" fontWeight="bold" color="gray.500" mb={4}>
+        ONLINE — {onlineUsers.length}
       </Text>
-      <VStack spacing={2} align="stretch">
-        {Object.entries(userPresence).map(([userId, { status, user }]) => (
-          <Flex key={userId} align="center" gap={2}>
-            <Box
-              w="10px"
-              h="10px"
-              borderRadius="full"
-              bg={status === 'online' ? 'green.500' : 'transparent'}
-              border="2px solid"
-              borderColor={status === 'online' ? 'green.500' : 'gray.300'}
-              boxShadow={status === 'online' ? '0 0 0 2px rgba(72, 187, 120, 0.2)' : 'none'}
-            />
-            <Avatar size="sm" name={user.username} src={user.avatar} />
-            <Text>{user.username}</Text>
+      <VStack spacing={3} align="stretch">
+        {/* Current user first */}
+        {currentUser && currentUserId && (
+          <Flex key={currentUserId} align="center" p={2} borderRadius="md" _hover={{ bg: 'gray.200' }}>
+            <UserStatus userId={currentUserId} />
+            <Avatar size="sm" name={currentUser.username} mr={2} />
+            <Text fontSize="sm">{currentUser.username} (you)</Text>
           </Flex>
-        ))}
-        {Object.keys(userPresence).length === 0 && (
-          <Text fontSize="sm" color="gray.500">
-            No users online
-          </Text>
         )}
+
+        {/* Other online users */}
+        {sortedUsers
+          .filter(user => user._id !== currentUserId)
+          .map(user => (
+            <Flex key={user._id} align="center" p={2} borderRadius="md" _hover={{ bg: 'gray.200' }}>
+              <UserStatus userId={user._id} />
+              <Avatar size="sm" name={user.username} mr={2} />
+              <Text fontSize="sm">{user.username}</Text>
+            </Flex>
+          ))}
       </VStack>
     </Box>
   );
