@@ -1,206 +1,328 @@
-import { Channel, IChannel, User } from '../models';
 import mongoose from 'mongoose';
+import { Channel } from '../models';
+import { IUser } from '../models/types';
+import { WebSocketErrorType } from '../types/websocket.types';
+import Logger from '../utils/logger';
+
+class ChannelError extends Error {
+  details?: any;
+  constructor(message: string, details?: any) {
+    super(message);
+    this.name = 'ChannelError';
+    this.details = details;
+  }
+}
+
+interface ChannelMember {
+  _id: mongoose.Types.ObjectId;
+  username: string;
+  avatar?: string;
+  status?: string;
+}
 
 interface CreateChannelParams {
   name: string;
   description?: string;
   isPrivate: boolean;
-  createdBy: string; // user ID
-  members?: string[]; // array of user IDs
+  createdBy: string;
+  members: string[];
 }
 
 class ChannelService {
-  async createChannel(params: CreateChannelParams): Promise<IChannel> {
-    const { name, description, isPrivate, createdBy, members = [] } = params;
-
-    // Always include the creator in the members list
-    const uniqueMembers = Array.from(new Set([createdBy, ...members]));
-
-    // Validate that all members exist
-    const memberCount = await User.countDocuments({
-      _id: { $in: uniqueMembers.map(id => new mongoose.Types.ObjectId(id)) }
-    });
-
-    if (memberCount !== uniqueMembers.length) {
-      throw new Error('One or more member IDs are invalid');
-    }
-
-    // Create the channel
-    const channel = await Channel.create({
-      name,
-      description,
-      isPrivate,
-      isDM: false,
-      members: uniqueMembers,
-      createdBy
-    });
-
-    return channel.populate(['members', 'createdBy']);
-  }
-
   async getChannels(userId: string) {
     try {
-      console.log('Fetching channels for user:', userId);
+      Logger.info('Fetching channels', {
+        context: 'ChannelService',
+        data: { userId }
+      });
 
       const channels = await Channel.find({
-        isDM: false
+        isDM: false,
+        $or: [
+          { isPrivate: false },
+          { members: new mongoose.Types.ObjectId(userId) }
+        ]
       })
-      .populate('createdBy', 'username avatar')
-      .lean();
+      .populate('members', 'username avatar status')
+      .sort({ lastMessage: -1 });
 
-      const channelsWithAccess = channels.map(channel => {
-        const isCreator = channel.createdBy?._id.toString() === userId;
-        const isMember = channel.members.some(memberId => memberId.toString() === userId);
-        const hasAccess = !channel.isPrivate || isMember || isCreator;
-
-        console.log('Channel access check:', {
-          channelId: channel._id,
-          channelName: channel.name,
-          isPrivate: channel.isPrivate,
-          isCreator,
-          isMember,
-          hasAccess
-        });
+      // Add hasAccess flag
+      return channels.map(channel => {
+        const memberIds = channel.members.map((m: any) => m._id?.toString() || m.toString());
+        const userIdString = userId.toString();
+        const hasAccess = !channel.isPrivate || memberIds.includes(userIdString);
 
         return {
-          ...channel,
+          ...channel.toObject(),
           hasAccess
         };
       });
-
-      return channelsWithAccess;
     } catch (error) {
-      console.error('Error fetching channels:', error);
-      throw error;
+      Logger.error('Failed to fetch channels', {
+        context: 'ChannelService',
+        code: WebSocketErrorType.CHANNEL_ERROR,
+        data: error instanceof Error ? error.message : String(error)
+      });
+      throw new ChannelError('Failed to fetch channels', {
+        originalError: error instanceof Error ? error.message : String(error)
+      });
     }
   }
 
-  async getChannelById(channelId: string, userId: string): Promise<IChannel | null> {
-    // Try to find by ID first
-    let channel = await Channel.findOne({
-      _id: channelId,
-      $or: [
-        { isPrivate: false },
-        { members: userId },
-        { createdBy: userId }
-      ]
-    }).populate(['members', 'createdBy']);
+  async getDMChannels(userId: string) {
+    try {
+      Logger.info('Fetching DM channels', {
+        context: 'ChannelService',
+        data: { userId }
+      });
 
-    // If not found by ID, try to find by name
-    if (!channel) {
-      channel = await Channel.findOne({
-        name: channelId,  // Try using the channelId as a name
-        $or: [
-          { isPrivate: false },
-          { members: userId },
-          { createdBy: userId }
+      const channels = await Channel.find({
+        isDM: true,
+        members: new mongoose.Types.ObjectId(userId)
+      })
+      .populate('members', 'username avatar status')
+      .sort({ lastMessage: -1 });
+
+      return channels.map(channel => ({
+        ...channel.toObject(),
+        hasAccess: true
+      }));
+    } catch (error) {
+      Logger.error('Failed to fetch DM channels', {
+        context: 'ChannelService',
+        code: WebSocketErrorType.CHANNEL_ERROR,
+        data: error instanceof Error ? error.message : String(error)
+      });
+      throw new ChannelError('Failed to fetch DM channels', {
+        originalError: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  async createDMChannel(userId1: string, userId2: string) {
+    try {
+      Logger.info('Creating DM channel', {
+        context: 'ChannelService',
+        data: { userId1, userId2 }
+      });
+
+      // Check if DM channel already exists
+      const existingChannel = await Channel.findOne({
+        isDM: true,
+        members: {
+          $all: [
+            new mongoose.Types.ObjectId(userId1),
+            new mongoose.Types.ObjectId(userId2)
+          ],
+          $size: 2
+        }
+      }).populate('members', 'username avatar status');
+
+      if (existingChannel) {
+        Logger.info('Found existing DM channel', {
+          context: 'ChannelService',
+          data: { channelId: existingChannel._id }
+        });
+        return {
+          ...existingChannel.toObject(),
+          hasAccess: true
+        };
+      }
+
+      // Create new DM channel
+      const channel = await Channel.create({
+        name: 'DM',
+        isDM: true,
+        isPrivate: true,
+        members: [
+          new mongoose.Types.ObjectId(userId1),
+          new mongoose.Types.ObjectId(userId2)
         ]
-      }).populate(['members', 'createdBy']);
-    }
+      });
 
-    return channel;
+      const populatedChannel = await channel.populate('members', 'username avatar status');
+
+      Logger.info('Created new DM channel', {
+        context: 'ChannelService',
+        data: { channelId: channel._id }
+      });
+
+      return {
+        ...populatedChannel.toObject(),
+        hasAccess: true
+      };
+    } catch (error) {
+      Logger.error('Failed to create DM channel', {
+        context: 'ChannelService',
+        code: WebSocketErrorType.CHANNEL_ERROR,
+        data: error instanceof Error ? error.message : String(error)
+      });
+      throw new ChannelError('Failed to create DM channel', {
+        originalError: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
-  async addMemberToChannel(channelId: string, userId: string, addedBy: string): Promise<IChannel> {
-    const channel = await Channel.findById(channelId);
-    if (!channel) {
-      throw new Error('Channel not found');
-    }
+  async createChannel(params: CreateChannelParams) {
+    try {
+      const { name, description, isPrivate, createdBy, members } = params;
 
-    // Check if the user adding is a member
-    if (!channel.members.includes(new mongoose.Types.ObjectId(addedBy))) {
-      throw new Error('You do not have permission to add members to this channel');
-    }
+      Logger.info('Creating channel', {
+        context: 'ChannelService',
+        data: { name, isPrivate, createdBy, memberCount: members.length }
+      });
 
-    // Check if the user exists
-    const user = await User.findById(userId);
-    if (!user) {
-      throw new Error('User not found');
-    }
+      const memberIds = members.map(id => new mongoose.Types.ObjectId(id));
 
-    // Add member if not already in the channel
-    if (!channel.members.includes(new mongoose.Types.ObjectId(userId))) {
+      // Always add creator to members if not already included
+      if (!memberIds.some(id => id.toString() === createdBy)) {
+        memberIds.push(new mongoose.Types.ObjectId(createdBy));
+      }
+
+      const channel = await Channel.create({
+        name,
+        description,
+        isPrivate,
+        isDM: false,
+        members: memberIds,
+        creator: new mongoose.Types.ObjectId(createdBy)
+      });
+
+      const populatedChannel = await channel.populate('members', 'username avatar status');
+
+      Logger.info('Channel created successfully', {
+        context: 'ChannelService',
+        data: { channelId: channel._id }
+      });
+
+      return populatedChannel;
+    } catch (error) {
+      Logger.error('Failed to create channel', {
+        context: 'ChannelService',
+        code: WebSocketErrorType.CHANNEL_ERROR,
+        data: error instanceof Error ? error.message : String(error)
+      });
+      throw new ChannelError('Failed to create channel', {
+        originalError: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  async getChannelById(channelId: string, userId: string) {
+    try {
+      Logger.info('Fetching channel by ID', {
+        context: 'ChannelService',
+        data: { channelId, userId }
+      });
+
+      const channel = await Channel.findById(channelId)
+        .populate('members', 'username avatar status');
+
+      if (!channel) {
+        Logger.warn('Channel not found', {
+          context: 'ChannelService',
+          code: WebSocketErrorType.CHANNEL_ERROR,
+          data: { channelId }
+        });
+        throw new ChannelError('Channel not found');
+      }
+
+      const memberIds = channel.members.map((m: any) => m._id?.toString() || m.toString());
+      const userIdString = userId.toString();
+      const hasAccess = !channel.isPrivate || memberIds.includes(userIdString);
+
+      if (!hasAccess) {
+        Logger.warn('Access denied to channel', {
+          context: 'ChannelService',
+          code: WebSocketErrorType.CHANNEL_ERROR,
+          data: { channelId, userId }
+        });
+        throw new ChannelError('You do not have access to this channel');
+      }
+
+      return {
+        ...channel.toObject(),
+        hasAccess
+      };
+    } catch (error) {
+      if (error instanceof ChannelError) {
+        throw error;
+      }
+      Logger.error('Failed to fetch channel', {
+        context: 'ChannelService',
+        code: WebSocketErrorType.CHANNEL_ERROR,
+        data: error instanceof Error ? error.message : String(error)
+      });
+      throw new ChannelError('Failed to fetch channel', {
+        originalError: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  async addMemberToChannel(channelId: string, userId: string, addedById: string) {
+    try {
+      Logger.info('Adding member to channel', {
+        context: 'ChannelService',
+        data: { channelId, userId, addedById }
+      });
+
+      const channel = await Channel.findById(channelId);
+      if (!channel) {
+        Logger.warn('Channel not found', {
+          context: 'ChannelService',
+          code: WebSocketErrorType.CHANNEL_ERROR,
+          data: { channelId }
+        });
+        throw new ChannelError('Channel not found');
+      }
+
+      // Check if user adding has permission
+      const adderIsMember = channel.members.some((m: mongoose.Types.ObjectId) => m.toString() === addedById);
+      if (!adderIsMember) {
+        Logger.warn('Permission denied - adder not a member', {
+          context: 'ChannelService',
+          code: WebSocketErrorType.CHANNEL_ERROR,
+          data: { channelId, addedById }
+        });
+        throw new ChannelError('You do not have permission to add members to this channel');
+      }
+
+      // Check if user is already a member
+      if (channel.members.some((m: mongoose.Types.ObjectId) => m.toString() === userId)) {
+        Logger.warn('User already a member', {
+          context: 'ChannelService',
+          code: WebSocketErrorType.CHANNEL_ERROR,
+          data: { channelId, userId }
+        });
+        throw new ChannelError('User is already a member of this channel');
+      }
+
       channel.members.push(new mongoose.Types.ObjectId(userId));
       await channel.save();
+
+      const populatedChannel = await channel.populate('members', 'username avatar status');
+
+      Logger.info('Member added successfully', {
+        context: 'ChannelService',
+        data: { channelId, userId }
+      });
+
+      return populatedChannel;
+    } catch (error) {
+      if (error instanceof ChannelError) {
+        throw error;
+      }
+      Logger.error('Failed to add member to channel', {
+        context: 'ChannelService',
+        code: WebSocketErrorType.CHANNEL_ERROR,
+        data: error instanceof Error ? error.message : String(error)
+      });
+      throw new ChannelError('Failed to add member to channel', {
+        originalError: error instanceof Error ? error.message : String(error)
+      });
     }
-
-    return channel.populate(['members', 'createdBy']);
-  }
-
-  async removeMemberFromChannel(channelId: string, userId: string, removedBy: string): Promise<IChannel> {
-    const channel = await Channel.findById(channelId);
-    if (!channel) {
-      throw new Error('Channel not found');
-    }
-
-    // Check if the user removing is a member
-    if (!channel.members.includes(new mongoose.Types.ObjectId(removedBy))) {
-      throw new Error('You do not have permission to remove members from this channel');
-    }
-
-    // Cannot remove the last member
-    if (channel.members.length <= 1) {
-      throw new Error('Cannot remove the last member from a channel');
-    }
-
-    // Remove member
-    channel.members = channel.members.filter(
-      memberId => !memberId.equals(new mongoose.Types.ObjectId(userId))
-    );
-    await channel.save();
-
-    return channel.populate(['members', 'createdBy']);
-  }
-
-  async updateChannel(
-    channelId: string,
-    userId: string,
-    updates: { name?: string; description?: string; isPrivate?: boolean }
-  ): Promise<IChannel> {
-    const channel = await Channel.findById(channelId);
-    if (!channel) {
-      throw new Error('Channel not found');
-    }
-
-    // Check if the user is a member
-    if (!channel.members.includes(new mongoose.Types.ObjectId(userId))) {
-      throw new Error('You do not have permission to update this channel');
-    }
-
-    // Update allowed fields
-    if (updates.name) channel.name = updates.name;
-    if (updates.description !== undefined) channel.description = updates.description;
-    if (updates.isPrivate !== undefined) channel.isPrivate = updates.isPrivate;
-
-    await channel.save();
-    return channel.populate(['members', 'createdBy']);
-  }
-
-  async addUserToPublicChannels(userId: string): Promise<void> {
-    console.log('Adding user to all public channels:', userId);
-
-    // Find all public channels
-    const publicChannels = await Channel.find({
-      isPrivate: false,
-      isDM: false,
-      members: { $ne: userId } // Only get channels where user is not already a member
-    });
-
-    if (publicChannels.length === 0) {
-      console.log('No public channels found to add user to');
-      return;
-    }
-
-    console.log(`Found ${publicChannels.length} public channels to add user to`);
-
-    // Add user to all public channels
-    await Channel.updateMany(
-      { _id: { $in: publicChannels.map(c => c._id) } },
-      { $addToSet: { members: userId } }
-    );
-
-    console.log('User added to all public channels successfully');
   }
 }
 
-export default new ChannelService();
+// Export a singleton instance
+export const channelService = new ChannelService();

@@ -1,67 +1,181 @@
+import { User } from '../models';
+import { WebSocketErrorType } from '../types/websocket.types';
+import Logger from '../utils/logger';
 import crypto from 'crypto';
-import bcrypt from 'bcryptjs';
-import { User } from '../models/User';
-import { PasswordReset } from '../models/PasswordReset';
-import emailService from './email.service';
+import bcrypt from 'bcrypt';
 
-class PasswordResetService {
-  private static RESET_TOKEN_EXPIRES_IN = 3600000; // 1 hour in milliseconds
-
-  async createResetToken(email: string): Promise<void> {
-    const user = await User.findOne({ email });
-    if (!user) {
-      throw new Error('No user found with this email address');
-    }
-
-    // Generate a random token
-    const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + PasswordResetService.RESET_TOKEN_EXPIRES_IN);
-
-    // Remove any existing reset tokens for this user
-    await PasswordReset.deleteMany({ user: user._id });
-
-    // Create new reset token
-    await PasswordReset.create({
-      user: user._id,
-      token,
-      expiresAt
-    });
-
-    // Send the reset email
-    await emailService.sendPasswordResetEmail(user, token);
-  }
-
-  async verifyToken(token: string): Promise<boolean> {
-    const resetToken = await PasswordReset.findOne({
-      token,
-      expiresAt: { $gt: new Date() }
-    });
-
-    return !!resetToken;
-  }
-
-  async resetPassword(token: string, newPassword: string): Promise<void> {
-    const resetToken = await PasswordReset.findOne({
-      token,
-      expiresAt: { $gt: new Date() }
-    }).populate('user');
-
-    if (!resetToken) {
-      throw new Error('Invalid or expired reset token');
-    }
-
-    // Hash the new password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(newPassword, salt);
-
-    // Update user's password
-    await User.findByIdAndUpdate(resetToken.user._id, {
-      password: hashedPassword
-    });
-
-    // Delete the used token
-    await PasswordReset.deleteOne({ _id: resetToken._id });
+class PasswordResetError extends Error {
+  details?: any;
+  constructor(message: string, details?: any) {
+    super(message);
+    this.name = 'PasswordResetError';
+    this.details = details;
   }
 }
 
-export default new PasswordResetService();
+class PasswordResetService {
+  async generateResetToken(email: string): Promise<string> {
+    try {
+      Logger.info('Generating reset token', {
+        context: 'PasswordResetService',
+        data: { email }
+      });
+
+      const user = await User.findOne({ email });
+      if (!user) {
+        Logger.warn('User not found for reset token', {
+          context: 'PasswordResetService',
+          code: WebSocketErrorType.AUTH_FAILED,
+          data: { email }
+        });
+        throw new PasswordResetError('No account found with this email');
+      }
+
+      const token = crypto.randomBytes(32).toString('hex');
+      const hashedToken = await bcrypt.hash(token, 10);
+
+      user.resetToken = hashedToken;
+      user.resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
+      await user.save();
+
+      Logger.info('Reset token generated successfully', {
+        context: 'PasswordResetService',
+        data: { userId: user._id }
+      });
+
+      return token;
+    } catch (error) {
+      if (error instanceof PasswordResetError) {
+        throw error;
+      }
+      Logger.error('Failed to generate reset token', {
+        context: 'PasswordResetService',
+        code: WebSocketErrorType.AUTH_FAILED,
+        data: error instanceof Error ? error.message : String(error)
+      });
+      throw new PasswordResetError('Failed to generate reset token', {
+        originalError: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  async verifyResetToken(token: string, email: string): Promise<boolean> {
+    try {
+      Logger.info('Verifying reset token', {
+        context: 'PasswordResetService',
+        data: { email }
+      });
+
+      const user = await User.findOne({ email });
+      if (!user || !user.resetToken || !user.resetTokenExpiry) {
+        Logger.warn('Invalid reset attempt', {
+          context: 'PasswordResetService',
+          code: WebSocketErrorType.AUTH_FAILED,
+          data: { email }
+        });
+        throw new PasswordResetError('Invalid or expired reset token');
+      }
+
+      if (user.resetTokenExpiry < new Date()) {
+        Logger.warn('Expired reset token', {
+          context: 'PasswordResetService',
+          code: WebSocketErrorType.AUTH_FAILED,
+          data: { email }
+        });
+        throw new PasswordResetError('Reset token has expired');
+      }
+
+      const isValid = await bcrypt.compare(token, user.resetToken);
+      if (!isValid) {
+        Logger.warn('Invalid reset token', {
+          context: 'PasswordResetService',
+          code: WebSocketErrorType.AUTH_FAILED,
+          data: { email }
+        });
+        throw new PasswordResetError('Invalid reset token');
+      }
+
+      Logger.info('Reset token verified successfully', {
+        context: 'PasswordResetService',
+        data: { userId: user._id }
+      });
+
+      return true;
+    } catch (error) {
+      if (error instanceof PasswordResetError) {
+        throw error;
+      }
+      Logger.error('Failed to verify reset token', {
+        context: 'PasswordResetService',
+        code: WebSocketErrorType.AUTH_FAILED,
+        data: error instanceof Error ? error.message : String(error)
+      });
+      throw new PasswordResetError('Failed to verify reset token', {
+        originalError: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  async resetPassword(token: string, email: string, newPassword: string): Promise<void> {
+    try {
+      Logger.info('Resetting password', {
+        context: 'PasswordResetService',
+        data: { email }
+      });
+
+      const user = await User.findOne({ email });
+      if (!user || !user.resetToken || !user.resetTokenExpiry) {
+        Logger.warn('Invalid reset attempt', {
+          context: 'PasswordResetService',
+          code: WebSocketErrorType.AUTH_FAILED,
+          data: { email }
+        });
+        throw new PasswordResetError('Invalid or expired reset token');
+      }
+
+      const isValid = await bcrypt.compare(token, user.resetToken);
+      if (!isValid) {
+        Logger.warn('Invalid reset token', {
+          context: 'PasswordResetService',
+          code: WebSocketErrorType.AUTH_FAILED,
+          data: { email }
+        });
+        throw new PasswordResetError('Invalid reset token');
+      }
+
+      if (user.resetTokenExpiry < new Date()) {
+        Logger.warn('Expired reset token', {
+          context: 'PasswordResetService',
+          code: WebSocketErrorType.AUTH_FAILED,
+          data: { email }
+        });
+        throw new PasswordResetError('Reset token has expired');
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      user.password = hashedPassword;
+      user.resetToken = undefined;
+      user.resetTokenExpiry = undefined;
+      await user.save();
+
+      Logger.info('Password reset successfully', {
+        context: 'PasswordResetService',
+        data: { userId: user._id }
+      });
+    } catch (error) {
+      if (error instanceof PasswordResetError) {
+        throw error;
+      }
+      Logger.error('Failed to reset password', {
+        context: 'PasswordResetService',
+        code: WebSocketErrorType.AUTH_FAILED,
+        data: error instanceof Error ? error.message : String(error)
+      });
+      throw new PasswordResetError('Failed to reset password', {
+        originalError: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+}
+
+export const passwordResetService = new PasswordResetService();

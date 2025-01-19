@@ -1,142 +1,177 @@
+import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { Strategy as GitHubStrategy } from 'passport-github2';
-import { Profile as GoogleProfile } from 'passport-google-oauth20';
-import { Profile as GitHubProfile } from 'passport-github2';
-import passport from 'passport';
+import { Strategy as JwtStrategy, ExtractJwt } from 'passport-jwt';
 import { User } from '../models';
-import channelService from '../services/channel.service';
+import { jwtConfig } from './jwt.config';
+import { channelService } from '../services/channel.service';
+import { Request } from 'express';
+import '../types/session.types';
 
-// Configure Google OAuth Strategy
-const googleStrategy = new GoogleStrategy(
-  {
-    clientID: process.env.GOOGLE_CLIENT_ID!,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-    callbackURL: process.env.GOOGLE_CALLBACK_URL,
-    scope: ['profile', 'email']
-  },
-  async (accessToken: string, refreshToken: string, profile: GoogleProfile, done: any) => {
-    try {
-      console.log('Google OAuth profile received:', {
-        id: profile.id,
-        displayName: profile.displayName,
-        emails: profile.emails?.map(e => e.value),
-        photos: profile.photos?.map(p => p.value)
-      });
+interface JwtPayload {
+  id: string;
+}
 
-      // Check if user exists
-      let user = await User.findOne({
-        $or: [
-          { 'oauthProviders.google': profile.id },
-          { email: profile.emails?.[0]?.value }
-        ]
-      });
+// Configure JWT strategy
+passport.use(new JwtStrategy({
+  jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+  secretOrKey: jwtConfig.secret.toString()
+}, async (payload: JwtPayload, done) => {
+  try {
+    const user = await User.findById(payload.id);
+    if (!user) {
+      return done(null, false);
+    }
+    return done(null, user);
+  } catch (error) {
+    return done(error, false);
+  }
+}));
 
-      if (!user) {
-        console.log('Creating new user for Google OAuth');
-        // Create new user if doesn't exist
+// Configure Google OAuth strategy
+passport.use(new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID || '',
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+  callbackURL: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3000/api/auth/google/callback',
+  passReqToCallback: true
+}, async (req: Request, accessToken: string, refreshToken: string, profile: any, done: any) => {
+  try {
+    // Verify state parameter
+    const savedState = req.session?.oauthState;
+    const receivedState = req.query.state;
+
+    if (!savedState || !receivedState || savedState !== receivedState) {
+      return done(null, false, { message: 'Invalid state parameter' });
+    }
+
+    // First try to find user by Google ID
+    let user = await User.findOne({ googleId: profile.id });
+
+    // If no user found by Google ID, try by email
+    if (!user && profile.emails?.[0]?.value) {
+      user = await User.findOne({ email: profile.emails[0].value });
+      if (user) {
+        // Update existing user with Google info
+        user.googleId = profile.id;
+        if (profile.photos?.[0]?.value) {
+          user.avatar = profile.photos[0].value;
+        }
+        await user.save();
+        return done(null, user);
+      }
+    }
+
+    // If still no user, create new one
+    if (!user) {
+      try {
         user = await User.create({
-          username: profile.displayName || `google_${profile.id}`,
+          username: profile.displayName,
           email: profile.emails?.[0]?.value,
-          oauthProviders: {
-            google: profile.id,
-          },
+          googleId: profile.id,
           avatar: profile.photos?.[0]?.value,
-          isGuest: false,
-          status: 'online',
-          lastSeen: new Date()
+          oauthProvider: 'google'
         });
 
         // Add user to public channels
         await channelService.addUserToPublicChannels(user._id.toString());
-        console.log('New user created:', { userId: user._id });
-      } else {
-        console.log('Existing user found:', { userId: user._id });
-        // Update user info
-        user.lastSeen = new Date();
-        user.status = 'online';
-        if (!user.oauthProviders?.google) {
-          user.oauthProviders = {
-            ...user.oauthProviders,
-            google: profile.id
-          };
+        console.log('Added Google user to public channels');
+
+      } catch (error) {
+        console.error('Error creating user:', error);
+        return done(error);
+      }
+    }
+
+    return done(null, user);
+  } catch (error) {
+    return done(error);
+  }
+}));
+
+// Configure GitHub OAuth strategy
+passport.use(new GitHubStrategy({
+  clientID: process.env.GITHUB_CLIENT_ID || '',
+  clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
+  callbackURL: process.env.GITHUB_CALLBACK_URL || 'http://localhost:3000/api/auth/github/callback',
+  passReqToCallback: true
+}, async (req: Request, accessToken: string, refreshToken: string, profile: any, done: any) => {
+  try {
+    // Verify state parameter
+    const savedState = req.session?.oauthState;
+    const receivedState = req.query.state;
+
+    if (!savedState || !receivedState || savedState !== receivedState) {
+      return done(null, false, { message: 'Invalid state parameter' });
+    }
+
+    // First try to find user by GitHub ID
+    let user = await User.findOne({ githubId: profile.id });
+
+    // If no user found by GitHub ID, try by email
+    if (!user && profile.emails?.[0]?.value) {
+      user = await User.findOne({ email: profile.emails[0].value });
+      if (user) {
+        // Update existing user with GitHub info
+        user.githubId = profile.id;
+        if (profile.photos?.[0]?.value) {
+          user.avatar = profile.photos[0].value;
         }
         await user.save();
+        return done(null, user);
+      }
+    }
+
+    // If still no user, create new one with unique email
+    if (!user) {
+      let username = profile.username || profile.displayName;
+      let email = profile.emails?.[0]?.value;
+
+      // If no email provided, generate a unique one
+      if (!email) {
+        let baseEmail = `${username}@github.user`;
+        let counter = 0;
+        let testEmail = baseEmail;
+
+        // Keep trying until we find a unique email
+        while (await User.findOne({ email: testEmail })) {
+          counter++;
+          testEmail = `${username}${counter}@github.user`;
+        }
+        email = testEmail;
       }
 
-      // Add id field for consistency
-      const userWithId = {
-        ...user.toObject(),
-        id: user._id
-      };
+      // Ensure unique username
+      let counter = 0;
+      let testUsername = username;
+      while (await User.findOne({ username: testUsername })) {
+        counter++;
+        testUsername = `${username}${counter}`;
+      }
+      username = testUsername;
 
-      return done(null, userWithId);
-    } catch (error) {
-      console.error('Error in Google OAuth strategy:', error);
-      return done(error);
-    }
-  }
-);
-
-// Configure GitHub OAuth Strategy
-const githubStrategy = new GitHubStrategy(
-  {
-    clientID: process.env.GITHUB_CLIENT_ID!,
-    clientSecret: process.env.GITHUB_CLIENT_SECRET!,
-    callbackURL: process.env.GITHUB_CALLBACK_URL!,
-    scope: ['user:email']
-  },
-  async (accessToken: string, refreshToken: string, profile: GitHubProfile, done: any) => {
-    try {
-      console.log('GitHub OAuth configuration:', {
-        callbackURL: process.env.GITHUB_CALLBACK_URL,
-        clientIDLength: process.env.GITHUB_CLIENT_ID?.length,
-        hasClientSecret: !!process.env.GITHUB_CLIENT_SECRET
-      });
-
-      console.log('GitHub OAuth profile received:', {
-        id: profile.id,
-        username: profile.username,
-        displayName: profile.displayName,
-        emails: profile.emails?.map(e => e.value) || [],
-        photos: profile.photos?.map(p => p.value) || []
-      });
-
-      // Check if user exists
-      let user = await User.findOne({
-        'oauthProviders.github': profile.id,
-      });
-
-      if (!user) {
-        console.log('Creating new user for GitHub OAuth');
-        // Create new user if doesn't exist
+      try {
         user = await User.create({
-          username: profile.username || profile.displayName || `github_${profile.id}`,
-          email: profile.emails?.[0]?.value,
-          oauthProviders: {
-            github: profile.id,
-          },
+          username,
+          email,
+          githubId: profile.id,
           avatar: profile.photos?.[0]?.value,
-          isGuest: false,
-          status: 'online',
+          oauthProvider: 'github'
         });
-        console.log('New user created:', { userId: user.id });
-      } else {
-        console.log('Existing user found:', { userId: user.id });
+
+        // Add user to public channels
+        await channelService.addUserToPublicChannels(user._id.toString());
+        console.log('Added GitHub user to public channels');
+
+      } catch (error) {
+        console.error('Error creating user:', error);
+        return done(error);
       }
-
-      // Update last seen
-      user.lastSeen = new Date();
-      user.status = 'online';
-      await user.save();
-
-      return done(null, user);
-    } catch (error) {
-      console.error('Error in GitHub OAuth strategy:', error);
-      return done(error);
     }
-  }
-);
 
-// Register strategies with passport
-passport.use(googleStrategy);
-passport.use(githubStrategy);
+    return done(null, user);
+  } catch (error) {
+    return done(error);
+  }
+}));
+
+export default passport;
