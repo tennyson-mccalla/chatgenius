@@ -29,7 +29,7 @@ export const ChannelPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
-  const { socket, isConnected, sendMessage } = useWebSocket();
+  const { socket, isConnected, isConnecting, lastError, sendMessage, isReady } = useWebSocket();
   const {
     channels,
     currentChannel,
@@ -42,21 +42,67 @@ export const ChannelPage: React.FC = () => {
   const mountTime = useRef(performance.now());
   const handlersRef = useRef<{ cleanup: () => void } | null>(null);
 
-  // Log initial mount
   useEffect(() => {
-    logState('ChannelPage Mounted', {
-      mountTime: mountTime.current,
-      channelId,
-      isConnected,
-      hasUser: !!user,
-      channelsCount: channels.length,
-      currentChannelId: currentChannel?._id
+    const mountTime = performance.now();
+
+    Logger.debug('ChannelPage Mounted', {
+      context: 'ChannelPage',
+      data: {
+        mountTime,
+        channelId,
+        isConnected,
+        hasUser: !!user,
+        channelsCount: channels.length,
+        currentChannel: currentChannel?._id
+      }
     });
 
-    return () => {
-      handlersRef.current?.cleanup();
-    };
-  }, []);
+    if (!isConnected || !socket || !user) {
+      Logger.warn('Channel initialization delayed', {
+        context: 'ChannelPage',
+        data: {
+          isConnected,
+          hasUser: !!user,
+          userId: user?._id,
+          wsState: {
+            connected: isConnected,
+            connecting: isConnecting,
+            hasError: !!lastError,
+            error: lastError?.message
+          }
+        }
+      });
+      return;
+    }
+
+    // Note: CLIENT_READY is now handled by WebSocketContext
+    Logger.debug('ChannelPage ready for initialization', {
+      context: 'ChannelPage',
+      data: {
+        userId: user._id,
+        username: user.username,
+        wsState: {
+          connected: isConnected,
+          readyState: socket ? WebSocket.OPEN : undefined
+        }
+      }
+    });
+  }, [isConnected, socket, user, lastError]);
+
+  // Join channel when connected and ready
+  useEffect(() => {
+    if (isConnected && isReady && channelId) {
+      Logger.debug('Joining channel', {
+        context: 'ChannelPage',
+        data: {
+          channelId,
+          isConnected,
+          isReady
+        }
+      });
+      sendMessage(WebSocketMessageType.CHANNEL_JOIN, { channelId });
+    }
+  }, [channelId, isConnected, isReady, sendMessage]);
 
   // Initialize socket handlers and fetch initial data
   useEffect(() => {
@@ -84,6 +130,11 @@ export const ChannelPage: React.FC = () => {
       }
     });
 
+    // Set loading to false if channels are already loaded
+    if (channels.length > 0) {
+      setIsLoading(false);
+    }
+
     // Fetch initial channels if needed
     if (channels.length === 0) {
       fetchChannels().catch(error => {
@@ -91,7 +142,7 @@ export const ChannelPage: React.FC = () => {
         setIsLoading(false);
       });
     }
-  }, [socket, user, isConnected]);
+  }, [socket, user, isConnected, channels.length]);
 
   // Handle channel routing
   useEffect(() => {
@@ -126,7 +177,9 @@ export const ChannelPage: React.FC = () => {
     setCurrentChannelId(targetChannel._id);
 
     // Join the channel
-    sendMessage(WebSocketMessageType.CHANNEL_JOIN, { channelId: targetChannel._id });
+    sendMessage(WebSocketMessageType.CHANNEL_JOIN, {
+      channelId: targetChannel._id
+    });
 
     logState('Channel Routing Complete', {
       channelId: targetChannel._id,
@@ -158,28 +211,35 @@ export const ChannelPage: React.FC = () => {
       </GridItem>
 
       {/* Main content */}
-      <VStack
-        align="stretch"
-        spacing={0}
-        h="100vh"
+      <GridItem
+        display="flex"
+        flexDirection="column"
+        overflow="hidden"
       >
-        <MessageList />
-        <MessageInput />
-      </VStack>
+        <Box flex="1" overflow="auto">
+          <MessageList />
+        </Box>
+        <Box>
+          <MessageInput />
+        </Box>
+      </GridItem>
 
       {/* Right sidebar */}
-      <VStack
-        align="stretch"
-        p={4}
-        borderLeft="1px"
-        borderColor="gray.200"
-        spacing={4}
-        overflowY="auto"
-        bg="gray.100"
-      >
-        <OnlineUsersList />
-        <ConnectionStatus />
-      </VStack>
+      <GridItem>
+        <VStack
+          align="stretch"
+          p={4}
+          borderLeft="1px"
+          borderColor="gray.200"
+          spacing={4}
+          overflowY="auto"
+          bg="gray.100"
+          h="100%"
+        >
+          <OnlineUsersList />
+          <ConnectionStatus />
+        </VStack>
+      </GridItem>
     </Grid>
   );
 };

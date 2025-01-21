@@ -20,9 +20,16 @@ export const DMList: React.FC = () => {
 
   const getOtherUserName = (channel: any) => {
     if (!channel.members || channel.members.length !== 2) return 'Unknown User';
-    const otherMember = channel.members.find((member: any) =>
-      (typeof member === 'object' ? member._id : member) !== user?._id
-    );
+
+    // Convert user._id to string for comparison
+    const currentUserId = user?._id?.toString();
+
+    const otherMember = channel.members.find((member: any) => {
+      // Handle both string IDs and object IDs by converting both to strings
+      const memberId = typeof member === 'object' ? member._id?.toString() : member?.toString();
+      return memberId !== currentUserId;
+    });
+
     return otherMember?.username || 'Unknown User';
   };
 

@@ -1,6 +1,7 @@
 import { ConnectionManager } from './ConnectionManager';
 import { WebSocketConnection } from './types';
 import { WebSocketMessageType } from '../types/websocket.types';
+import { Channel } from '../models';
 
 export class ChannelManager {
   private connectionManager: ConnectionManager;
@@ -51,5 +52,30 @@ export class ChannelManager {
     }
 
     return channels;
+  }
+
+  public async getChannelsForUser(userId: string): Promise<any[]> {
+    try {
+      // Find all channels where the user is a member
+      const channels = await Channel.find({
+        $or: [
+          { members: userId },
+          { isDM: true, members: userId }
+        ]
+      }).populate('members', '_id username');
+
+      return channels.map(channel => ({
+        _id: channel._id,
+        name: channel.name,
+        isDM: channel.isDM,
+        members: channel.members,
+        lastMessage: channel.lastMessage,
+        createdAt: channel.createdAt,
+        updatedAt: channel.updatedAt
+      }));
+    } catch (error) {
+      console.error('Error fetching channels for user:', error);
+      return [];
+    }
   }
 }

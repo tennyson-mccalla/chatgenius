@@ -1,314 +1,211 @@
+import { Server } from 'http';
 import { WebSocket, WebSocketServer as WSServer } from 'ws';
 import { IncomingMessage } from 'http';
-import { WebSocketConnection, WebSocketServerConfig } from './types';
-import { ConnectionManager } from './ConnectionManager';
-import { ChannelManager } from './ChannelManager';
-import { MessageHandler } from './MessageHandler';
-import { verifyToken } from './middleware/auth';
-import { WebSocketMessageType, ChannelMember, Channel as WSChannel } from '../types/websocket.types';
-import { User, Channel } from '../models';
-import { Duplex } from 'stream';
-
-const log = {
-  info: (...args: any[]) => console.log('[WebSocket]', ...args),
-  error: (...args: any[]) => console.error('[WebSocket]', ...args)
-};
+import { Socket } from 'net';
+import { WebSocketConnection, WebSocketMessage, WebSocketMessageType } from '../types/websocket.types';
+import { verifyToken } from '../utils/auth';
+import Logger from '../utils/logger';
 
 export class WebSocketServer {
   private wss: WSServer;
-  private connectionManager: ConnectionManager;
-  private channelManager: ChannelManager;
-  private messageHandler: MessageHandler;
-  private config: WebSocketServerConfig;
-  private isShuttingDown: boolean = false;
+  private connections: Map<string, WebSocketConnection> = new Map();
 
-  constructor(server: any, config: WebSocketServerConfig) {
+  constructor(server: Server) {
     this.wss = new WSServer({ noServer: true });
-    this.config = config;
-    this.connectionManager = new ConnectionManager();
-    this.channelManager = new ChannelManager(this.connectionManager);
-    this.messageHandler = new MessageHandler(this.connectionManager, this.channelManager);
-
-    this.setupWebSocketServer();
-    this.setupGracefulShutdown();
+    this.setupWebSocketServer(server);
   }
 
-  private setupGracefulShutdown() {
-    const cleanup = () => {
-      if (this.isShuttingDown) {
-        log.info('Forced shutdown initiated');
-        process.exit(1);
+  private setupWebSocketServer(server: Server): void {
+    server.on('upgrade', async (request: IncomingMessage, socket: Socket, head: Buffer) => {
+      const { pathname, searchParams } = new URL(request.url!, `http://${request.headers.host}`);
+
+      if (pathname !== '/ws') {
+        socket.destroy();
         return;
       }
 
-      this.isShuttingDown = true;
-      log.info('Starting graceful shutdown');
-
-      // Force close all connections immediately
-      const connections = this.connectionManager.getConnections();
-      for (const connection of connections) {
-        try {
-          connection.socket.terminate(); // Use terminate instead of close for immediate effect
-        } catch (error) {
-          log.error('Error during connection cleanup:', { error });
-        }
-      }
-
-      // Clear all managers immediately
-      this.connectionManager.close();
-
-      // Force close the server
-      this.wss.close(() => {
-        log.info('WebSocket server closed');
-        // Force exit after 1 second if graceful shutdown fails
-        setTimeout(() => {
-          log.info('Forcing exit...');
-          process.exit(0);
-        }, 1000);
-      });
-    };
-
-    // Handle different termination signals
-    process.on('SIGINT', cleanup);
-    process.on('SIGTERM', cleanup);
-    process.on('SIGHUP', cleanup);
-
-    // Handle uncaught exceptions
-    process.on('uncaughtException', (error) => {
-      log.error('Uncaught exception:', { error });
-      cleanup();
-    });
-
-    // Handle unhandled promise rejections
-    process.on('unhandledRejection', (reason, promise) => {
-      log.error('Unhandled rejection:', { reason });
-      cleanup();
-    });
-  }
-
-  public handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
-    this.wss.handleUpgrade(request, socket, head, (ws) => {
-      this.wss.emit('connection', ws, request);
-    });
-  }
-
-  private setupWebSocketServer() {
-    this.wss.on('connection', async (socket: WebSocket, req: IncomingMessage) => {
-      if (this.isShuttingDown) {
-        socket.close(1001, 'Server is shutting down');
-        return;
-      }
-
-      let userId: string | null = null;
-      let username: string | null = null;
-
-      const token = this.extractToken(req);
+      const token = searchParams.get('token');
       if (!token) {
-        log.error('Connection rejected - no token');
-        socket.close(1008, 'No token provided');
+        Logger.warn('WebSocket connection attempt without token', {
+          context: 'WebSocketServer',
+          data: { pathname }
+        });
+        socket.destroy();
         return;
       }
 
       try {
-        userId = await verifyToken(token);
-        if (!userId) {
-          log.error('Connection rejected - invalid token');
-          socket.close(1008, 'Invalid token');
-          return;
-        }
-
-        const user = await User.findById(userId);
+        const user = await verifyToken(token);
         if (!user) {
-          log.error('Connection rejected - user not found', { userId });
-          socket.close(1008, 'User not found');
+          Logger.warn('Invalid token in WebSocket connection attempt', {
+            context: 'WebSocketServer'
+          });
+          socket.destroy();
           return;
         }
 
-        username = user.username;
-        let isAlive = true;
-        const pingInterval = setInterval(() => {
-          if (!isAlive) {
-            log.info('Terminating inactive connection', { userId, username });
-            socket.terminate();
-            return;
-          }
-          isAlive = false;
-          socket.ping();
-        }, 30000);
-
-        socket.on('pong', () => {
-          isAlive = true;
-        });
-
-        const connection: WebSocketConnection = {
-          socket,
-          userId,
-          username: user.username,
-          channels: new Set(),
-          lastSeen: new Date(),
-          authenticated: true
-        };
-
-        // Add user to their channels
-        const channels = await Channel.find({
-          $or: [
-            { members: userId },
-            { isPrivate: false }
-          ]
-        }).populate('members', 'username avatar status');
-
-        for (const channel of channels) {
-          this.channelManager.addUserToChannel(connection, channel._id.toString());
-        }
-
-        this.connectionManager.addConnection(connection);
-        log.info('Connection established', { userId, username });
-
-        // Send initial messages
-        socket.send(JSON.stringify({
-          type: WebSocketMessageType.AUTH_SUCCESS,
-          payload: { userId, username },
-          timestamp: Date.now()
-        }));
-
-        // Send initial channel data
-        socket.send(JSON.stringify({
-          type: WebSocketMessageType.CHANNELS_LOADED,
-          payload: {
-            channels: channels.map(channel => ({
-              _id: channel._id.toString(),
-              name: channel.name,
-              description: channel.description,
-              isPrivate: channel.isPrivate,
-              isDM: channel.isDM,
-              members: channel.members.map((m: { _id: any; username: string; avatar?: string; status?: string }) => ({
-                _id: m._id.toString(),
-                username: m.username,
-                avatar: m.avatar,
-                status: m.status
-              } as ChannelMember)),
-              hasAccess: !channel.isPrivate || channel.members.some((m: { _id: any }) => m._id.toString() === userId)
-            } as WSChannel))
-          },
-          timestamp: Date.now()
-        }));
-
-        // Send initial presence data
-        const allConnections = this.connectionManager.getConnections();
-        const presenceList = Array.from(allConnections).map(conn => ({
-          userId: conn.userId,
-          username: conn.username,
-          status: 'online',
-          lastSeen: conn.lastSeen
-        }));
-
-        socket.send(JSON.stringify({
-          type: WebSocketMessageType.INITIAL_PRESENCE,
-          payload: presenceList,
-          timestamp: Date.now()
-        }));
-
-        // Send channel joined messages
-        for (const channel of channels) {
-          socket.send(JSON.stringify({
-            type: WebSocketMessageType.CHANNEL_JOINED,
-            payload: {
-              channelId: channel._id.toString(),
-              userId,
-              username: user.username
-            },
-            timestamp: Date.now()
-          }));
-        }
-
-        socket.on('message', (data: Buffer | ArrayBuffer | Buffer[]) => {
-          try {
-            const message = JSON.parse(data.toString());
-
-            // Handle PING messages immediately
-            if (message.type === 'PING') {
-              socket.send(JSON.stringify({
-                type: 'PONG',
-                timestamp: Date.now()
-              }));
-              return;
-            }
-
-            this.messageHandler.handleMessage(connection, message);
-          } catch (error) {
-            log.error('Message handling failed', { error, userId, username });
-            socket.close(1011, 'Error handling message');
+        Logger.debug('Upgrading WebSocket connection', {
+          context: 'WebSocketServer',
+          data: {
+            userId: user.id,
+            pathname,
+            hasToken: !!token
           }
         });
 
-        socket.on('close', () => {
-          clearInterval(pingInterval);
-          log.info('Connection closed', { userId, username });
-
-          // Cleanup connection
-          this.connectionManager.removeConnection(connection);
-          this.broadcastPresenceUpdate(connection, 'offline');
+        this.wss.handleUpgrade(request, socket, head, (ws) => {
+          this.handleConnection(ws, user.id);
         });
-
-        socket.on('error', (error) => {
-          clearInterval(pingInterval);
-          log.error('Socket error', { error, userId, username });
-          this.connectionManager.removeConnection(connection);
-        });
-
-        // Broadcast initial presence
-        this.broadcastPresenceUpdate(connection, 'online');
 
       } catch (error) {
-        log.error('Connection setup failed', { error, userId, username });
-        socket.close(1008, 'Authentication failed');
+        Logger.error('Error during WebSocket authentication', {
+          context: 'WebSocketServer',
+          data: {
+            error: error instanceof Error ? error.message : String(error)
+          }
+        });
+        socket.destroy();
       }
     });
   }
 
-  private extractToken(req: IncomingMessage): string | null {
-    try {
-      const url = new URL(req.url!, `http://${req.headers.host}`);
-      const token = url.searchParams.get('token');
-      return token || null;
-    } catch (error) {
-      console.error('Error extracting token:', error);
-      return null;
-    }
-  }
+  private handleConnection(ws: WebSocket, userId: string): void {
+    Logger.debug('New WebSocket connection', {
+      context: 'WebSocketServer',
+      data: { userId }
+    });
 
-  public broadcast(message: string, filter?: (connection: WebSocketConnection) => boolean): void {
-    const connections = this.connectionManager.getConnections();
+    // Create new connection instance
+    const connection: WebSocketConnection = {
+      socket: ws,
+      userId,
+      state: 'CONNECTING',
+      ready: false,
+      authenticated: false,
+      timeout: null,
+      username: '',  // Will be set when CLIENT_READY is received
+      channels: new Set<string>(),  // Will be populated as user joins channels
+      lastSeen: new Date()
+    };
 
-    for (const connection of connections) {
-      if (connection.socket.readyState === 1) { // 1 = OPEN
-        if (!filter || filter(connection)) {
-          try {
-            connection.socket.send(message);
-          } catch (error) {
-            console.error('Error broadcasting message:', error);
+    // Set up message handling
+    ws.on('message', async (rawData: Buffer) => {
+      try {
+        const messageStr = rawData.toString();
+        const message = JSON.parse(messageStr) as WebSocketMessage;
+
+        Logger.debug('Received WebSocket message', {
+          context: 'WebSocketServer',
+          data: {
+            userId,
+            type: message.type,
+            messageSize: rawData.length,
+            connectionState: connection.state,
+            isAuthenticated: connection.authenticated,
+            isReady: connection.ready
           }
+        });
+
+        // Handle AUTH message
+        if (message.type === WebSocketMessageType.AUTH) {
+          const authPayload = message.payload as { userId: string; username: string; token: string };
+          connection.state = 'AUTHENTICATING';
+          connection.authenticated = true;
+
+          // Set username from message payload
+          connection.username = authPayload.username;
+
+          // Send AUTH_SUCCESS
+          ws.send(JSON.stringify({
+            type: WebSocketMessageType.AUTH_SUCCESS,
+            payload: {
+              userId,
+              username: connection.username
+            }
+          }));
+
+          Logger.info('Sent AUTH_SUCCESS', {
+            context: 'WebSocketServer',
+            data: {
+              userId,
+              username: connection.username,
+              state: connection.state,
+              authenticated: connection.authenticated
+            }
+          });
         }
+        // Handle CLIENT_READY message
+        else if (message.type === WebSocketMessageType.CLIENT_READY) {
+          connection.state = 'AUTHENTICATED';
+          connection.ready = true;
+
+          // Send READY_CONFIRMED
+          const response = {
+            type: WebSocketMessageType.READY_CONFIRMED,
+            payload: {
+              userId,
+              timestamp: new Date().toISOString()
+            }
+          };
+          ws.send(JSON.stringify(response));
+
+          Logger.info('Client marked as ready', {
+            context: 'WebSocketServer',
+            data: {
+              userId,
+              state: connection.state,
+              ready: connection.ready
+            }
+          });
+        }
+      } catch (error) {
+        Logger.error('Error handling WebSocket message', {
+          context: 'WebSocketServer',
+          data: {
+            userId,
+            error: error instanceof Error ? error.message : String(error),
+            rawData: rawData.toString().slice(0, 200)
+          }
+        });
       }
+    });
+
+    // Store connection
+    this.connections.set(userId, connection);
+
+    // Handle connection closure
+    ws.on('close', () => {
+      this.connections.delete(userId);
+      Logger.info('Connection removed', {
+        context: 'WebSocketServer',
+        data: {
+          userId,
+          remainingConnections: this.connections.size
+        }
+      });
+    });
+
+    Logger.info('Connection initialized', {
+      context: 'WebSocketServer',
+      data: {
+        userId,
+        state: connection.state,
+        authenticated: connection.authenticated,
+        ready: connection.ready
+      }
+    });
+  }
+
+  public shutdown(): void {
+    // Close all connections
+    for (const connection of this.connections.values()) {
+      connection.socket.close(1000, 'Server shutting down');
     }
-  }
 
-  public close() {
-    this.isShuttingDown = true;
-    this.connectionManager.close();
+    // Clear connections map
+    this.connections.clear();
+
+    // Close the WebSocket server
     this.wss.close();
-  }
-
-  private broadcastPresenceUpdate(connection: WebSocketConnection, status: 'online' | 'offline') {
-    this.broadcast(JSON.stringify({
-      type: WebSocketMessageType.PRESENCE_CHANGED,
-      payload: {
-        userId: connection.userId,
-        username: connection.username,
-        status,
-        lastSeen: new Date().getTime()
-      },
-      timestamp: Date.now()
-    }));
   }
 }

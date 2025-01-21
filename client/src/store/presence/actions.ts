@@ -1,21 +1,23 @@
 import { StoreApi } from 'zustand';
-import { PresenceState } from './types';
-import { UserStatus } from '../../../../server/src/models/types';
-import api from '../../services/api';
+import { PresenceState, PresenceUser } from './types';
+import { UserStatus } from '../../types/user.types';
+import Logger from '../../utils/logger';
 
 export const createActions = (
   set: StoreApi<PresenceState>['setState'],
   get: StoreApi<PresenceState>['getState']
 ) => ({
-  setUserStatus: async (userId: string, status: UserStatus, user: { _id: string; username: string }) => {
-    console.log('Setting user status:', {
-      userId,
-      username: user.username,
-      status,
-      timestamp: new Date().toISOString()
+  setUserStatus: (userId: string, status: UserStatus, user: { _id: string; username: string }) => {
+    Logger.debug('Setting user status', {
+      context: 'PresenceStore',
+      data: {
+        userId,
+        username: user.username,
+        status,
+        timestamp: new Date().toISOString()
+      }
     });
 
-    // Update local state
     set((state) => ({
       userStatuses: {
         ...state.userStatuses,
@@ -27,35 +29,55 @@ export const createActions = (
         }
       }
     }));
+  },
 
-    // If it's the current user, update the server
-    const currentUser = get().userStatuses[userId];
-    if (currentUser && status !== currentUser.status) {
-      try {
-        await api.post('/api/users/status', { status });
-      } catch (error) {
-        console.error('Failed to update server status:', error);
+  setInitialPresence: (users: Array<{ userId: string; username: string; status: UserStatus; lastSeen?: Date }>) => {
+    Logger.debug('Setting initial presence', {
+      context: 'PresenceStore',
+      data: {
+        userCount: users.length,
+        users: users.map(u => ({ id: u.userId, username: u.username, status: u.status }))
       }
-    }
+    });
+
+    const userStatuses = users.reduce<Record<string, PresenceUser>>((acc, user) => {
+      acc[user.userId] = {
+        _id: user.userId,
+        username: user.username,
+        status: user.status,
+        lastSeen: user.lastSeen
+      };
+      return acc;
+    }, {});
+
+    set({ userStatuses });
   },
 
   clearPresence: () => {
-    console.log('Clearing presence data');
+    Logger.debug('Clearing presence data', {
+      context: 'PresenceStore'
+    });
     set({ userStatuses: {} });
   },
 
-  updateLastSeen: async (userId: string, lastSeen: Date) => {
+  updateLastSeen: (userId: string, lastSeen: Date) => {
     set((state) => {
       const user = state.userStatuses[userId];
       if (!user) {
-        console.warn('Attempted to update lastSeen for non-existent user:', userId);
+        Logger.warn('Attempted to update lastSeen for non-existent user', {
+          context: 'PresenceStore',
+          data: { userId }
+        });
         return state;
       }
 
-      console.log('Updating last seen:', {
-        userId,
-        username: user.username,
-        lastSeen: lastSeen.toISOString()
+      Logger.debug('Updating last seen', {
+        context: 'PresenceStore',
+        data: {
+          userId,
+          username: user.username,
+          lastSeen: lastSeen.toISOString()
+        }
       });
 
       return {
@@ -69,12 +91,5 @@ export const createActions = (
         }
       };
     });
-
-    // Update server if it's the current user
-    try {
-      await api.post('/api/users/last-seen', { lastSeen });
-    } catch (error) {
-      console.error('Failed to update server last seen:', error);
-    }
   }
 });

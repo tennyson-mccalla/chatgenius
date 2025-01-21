@@ -3,14 +3,23 @@ import {
   Box,
   Button,
   Icon,
+  useDisclosure,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalCloseButton,
 } from '@chakra-ui/react';
-import { FaSignOutAlt } from 'react-icons/fa';
+import { FaSignOutAlt, FaSearch } from 'react-icons/fa';
 import { useAuth } from '../../store/authStore';
 import { ChannelList } from '../ChannelList';
 import { DMList } from '../DMList';
+import { SearchMessages } from '../SearchMessages';
 
 export const Sidebar = () => {
   const { logout } = useAuth();
+  const { isOpen, onOpen, onClose } = useDisclosure();
 
   return (
     <VStack
@@ -23,6 +32,16 @@ export const Sidebar = () => {
       h="100vh"
       bg="gray.100"
     >
+      <Button
+        leftIcon={<Icon as={FaSearch} />}
+        colorScheme="blue"
+        variant="solid"
+        size="sm"
+        width="full"
+        onClick={onOpen}
+      >
+        Search Messages
+      </Button>
       <ChannelList />
       <DMList />
       <Box mt="auto" pt={4} borderTop="1px" borderColor="gray.200">
@@ -37,6 +56,17 @@ export const Sidebar = () => {
           Logout
         </Button>
       </Box>
+
+      <Modal isOpen={isOpen} onClose={onClose} size="xl">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Search Messages</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={6}>
+            <SearchMessages onClose={onClose} />
+          </ModalBody>
+        </ModalContent>
+      </Modal>
     </VStack>
   );
 };

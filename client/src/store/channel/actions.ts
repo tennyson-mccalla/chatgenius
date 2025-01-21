@@ -37,7 +37,30 @@ export const createActions = (
       const existingChannels = get().channels;
       const mergedChannels = [...regularChannels, ...dmChannels].map(channel => {
         const existingChannel = existingChannels.find((ch: Channel) => ch._id === channel._id);
-        if (existingChannel?.members?.some((m: any) => typeof m === 'object')) {
+
+        // Check if new channel has populated members
+        const newHasPopulatedMembers = channel.members?.some((m: any) =>
+          typeof m === 'object' && m !== null && 'username' in m
+        );
+
+        // Check if existing channel has populated members
+        const existingHasPopulatedMembers = existingChannel?.members?.some((m: any) =>
+          typeof m === 'object' && m !== null && 'username' in m
+        );
+
+        console.log('[ChannelStore] Merging channel:', {
+          channelId: channel._id,
+          isDM: channel.isDM,
+          newMemberCount: channel.members?.length,
+          existingMemberCount: existingChannel?.members?.length,
+          newHasPopulatedMembers,
+          existingHasPopulatedMembers
+        });
+
+        // Always use populated members when available
+        if (newHasPopulatedMembers) {
+          return channel;
+        } else if (existingHasPopulatedMembers) {
           return {
             ...channel,
             members: existingChannel.members
@@ -85,22 +108,43 @@ export const createActions = (
   addOrUpdateChannel: (channel: Channel) => {
     set(state => {
       const existingIndex = state.channels.findIndex((ch: Channel) => ch._id === channel._id);
-      const existingHasPopulatedMembers = existingIndex >= 0 &&
-        state.channels[existingIndex].members?.some((m: any) => typeof m === 'object');
-      const newHasPopulatedMembers = channel.members?.some((m: any) => typeof m === 'object');
 
-      console.log('Channel Store: Adding/Updating channel:', {
+      // Check if new channel has populated members
+      const newHasPopulatedMembers = channel.members?.some((m: any) =>
+        typeof m === 'object' && m !== null && 'username' in m
+      );
+
+      // Check if existing channel has populated members
+      const existingHasPopulatedMembers = existingIndex >= 0 &&
+        state.channels[existingIndex].members?.some((m: any) =>
+          typeof m === 'object' && m !== null && 'username' in m
+        );
+
+      console.log('[ChannelStore] Adding/Updating channel:', {
         channelId: channel._id,
         action: existingIndex >= 0 ? 'update' : 'add',
-        existingHasPopulatedMembers,
+        isDM: channel.isDM,
+        newMemberCount: channel.members?.length,
+        existingMemberCount: existingIndex >= 0 ? state.channels[existingIndex].members?.length : 0,
         newHasPopulatedMembers,
-        willPreserveExisting: existingHasPopulatedMembers && !newHasPopulatedMembers
+        existingHasPopulatedMembers
       });
 
+      // Ensure channel is marked as accessible
+      const channelWithAccess = {
+        ...channel,
+        hasAccess: true
+      };
+
       if (existingIndex >= 0) {
-        if (existingHasPopulatedMembers && !newHasPopulatedMembers) {
+        // Always use populated members when available
+        if (newHasPopulatedMembers) {
+          const newChannels = [...state.channels];
+          newChannels[existingIndex] = channelWithAccess;
+          return { channels: newChannels };
+        } else if (existingHasPopulatedMembers) {
           const updatedChannel = {
-            ...channel,
+            ...channelWithAccess,
             members: state.channels[existingIndex].members
           };
           const newChannels = [...state.channels];
@@ -108,10 +152,10 @@ export const createActions = (
           return { channels: newChannels };
         }
         const newChannels = [...state.channels];
-        newChannels[existingIndex] = channel;
+        newChannels[existingIndex] = channelWithAccess;
         return { channels: newChannels };
       }
-      return { channels: [...state.channels, channel] };
+      return { channels: [...state.channels, channelWithAccess] };
     });
   },
 

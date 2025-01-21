@@ -8,6 +8,9 @@ export interface WebSocketConnection {
   channels: Set<string>;
   lastSeen: Date;
   authenticated: boolean;
+  ready: boolean;
+  presenceInterval?: NodeJS.Timeout;
+  timeout: NodeJS.Timeout | null;
 }
 
 export interface WebSocketServerConfig {

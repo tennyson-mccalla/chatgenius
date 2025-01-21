@@ -209,13 +209,11 @@ export const MessageList: React.FC = () => {
 
   return (
     <Box
-      flex="1"
-      overflowY="auto"
       display="flex"
       flexDirection="column"
       p={4}
       gap={2}
-      h="full"
+      height="100%"
       onScroll={handleScroll}
     >
       {messages.length === 0 ? (

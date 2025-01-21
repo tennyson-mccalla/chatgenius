@@ -101,8 +101,20 @@ class AuthService {
         throw new AuthError('Username is already taken');
       }
 
+      // Generate a unique email for the guest user
+      let baseEmail = `${username}@guest.chatgenius.local`;
+      let counter = 0;
+      let email = baseEmail;
+
+      // Keep trying until we find a unique email
+      while (await User.findOne({ email })) {
+        counter++;
+        email = `${username}${counter}@guest.chatgenius.local`;
+      }
+
       const user = await User.create({
         username,
+        email,
         isGuest: true
       });
 

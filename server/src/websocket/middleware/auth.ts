@@ -3,6 +3,12 @@ import jwt from 'jsonwebtoken';
 import { User } from '../../models';
 import { WebSocketMessageType, AuthPayload, WebSocketError, WebSocketErrorType } from '../../types/websocket.types';
 import { jwtConfig } from '../../config/jwt.config';
+import Logger from '../../utils/logger';
+
+interface TokenPayload {
+  userId: string;
+  username?: string;
+}
 
 export async function authenticateConnection(
   socket: WebSocket & { userId?: string; username?: string; authenticated?: boolean; authTimer?: NodeJS.Timeout },
@@ -74,12 +80,45 @@ export function getUsername(socket: WebSocket & { username?: string }): string |
 }
 
 // Utility function to verify token without socket
-export async function verifyToken(token: string): Promise<string | null> {
+export async function verifyToken(token: string): Promise<{ userId: string; username: string }> {
   try {
-    const decoded = jwt.verify(token, jwtConfig.secret) as { id: string };
-    return decoded.id;
-  } catch {
-    return null;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || jwtConfig.secret) as any;
+
+    // Handle old token format where userId is in 'id'
+    const userId = decoded.userId || decoded.id;
+    if (!userId) {
+      throw new Error('Invalid token - no userId found');
+    }
+
+    // If username is in token, use it
+    if (decoded.username) {
+      return { userId, username: decoded.username };
+    }
+
+    // Otherwise fetch from database
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    Logger.debug('Token verified successfully', {
+      context: 'auth',
+      data: {
+        userId,
+        username: user.username,
+        tokenFormat: decoded.userId ? 'new' : 'old'
+      }
+    });
+
+    return { userId, username: user.username };
+  } catch (error) {
+    Logger.error('Token verification failed', {
+      context: 'auth',
+      data: {
+        error: error instanceof Error ? error.message : String(error)
+      }
+    });
+    throw error;
   }
 }
 

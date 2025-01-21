@@ -141,6 +141,9 @@ export const OAuthCallback = () => {
             newUser: authResponse.data.user
           });
 
+          // Store user ID in localStorage for WebSocket connection
+          localStorage.setItem('userId', authResponse.data.user._id);
+
           // Update user in store
           setUser(authResponse.data.user);
 

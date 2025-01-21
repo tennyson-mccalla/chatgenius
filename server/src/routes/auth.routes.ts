@@ -11,6 +11,9 @@ import '../types/session.types';
 
 const router = Router();
 
+// Middleware to ensure user is authenticated
+const authenticate = passport.authenticate('jwt', { session: false });
+
 // Email/Password login
 router.post('/login', async (req, res) => {
   try {
@@ -166,13 +169,11 @@ router.get('/google/callback',
       expiresIn: '7d'
     });
 
-    const callbackUrl = req.session?.oauthCallback || '/auth/callback';
+    const callbackUrl = `${process.env.CLIENT_URL}/oauth/callback`;
     Logger.info('Redirecting to callback URL', {
       context: 'AuthRoutes',
-      data: {
-        callbackUrl,
-        tokenPreview: token.substring(0, 8) + '...'
-      }
+      callbackUrl,
+      tokenPreview: token.substring(0, 8) + '...'
     });
 
     // Clear session data
@@ -266,13 +267,11 @@ router.get('/github/callback',
       expiresIn: '7d'
     });
 
-    const callbackUrl = req.session?.oauthCallback || '/auth/callback';
+    const callbackUrl = `${process.env.CLIENT_URL}/oauth/callback`;
     Logger.info('Redirecting to callback URL', {
       context: 'AuthRoutes',
-      data: {
-        callbackUrl,
-        tokenPreview: token.substring(0, 8) + '...'
-      }
+      callbackUrl,
+      tokenPreview: token.substring(0, 8) + '...'
     });
 
     // Clear session data
@@ -284,7 +283,7 @@ router.get('/github/callback',
 );
 
 // Get current user
-router.get('/me',
+router.get('/api/auth/me',
   passport.authenticate('jwt', { session: false }),
   (req, res) => {
     res.json(req.user);
@@ -292,32 +291,66 @@ router.get('/me',
 );
 
 // Auth check endpoint
-router.get('/check', async (req, res) => {
+router.get('/check', authenticate, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    console.log('Auth check request received:', {
-      hasAuthHeader: !!authHeader,
-      authHeader: authHeader ? `${authHeader.substring(0, 15)}...` : null
+    const user = req.user as IUser;
+    if (!user?._id) {
+      return res.status(401).json({
+        code: WebSocketErrorType.AUTH_FAILED,
+        message: 'No user found'
+      });
+    }
+
+    Logger.info('Auth check successful', {
+      context: 'AuthRoutes',
+      data: { userId: user._id }
     });
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'No token provided' });
-    }
-
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, jwtConfig.secret.toString()) as { id: string };
-    const user = await User.findById(decoded.id);
-
-    if (!user) {
-      console.log('Auth check failed: User not found');
-      return res.status(401).json({ message: 'Invalid token' });
-    }
-
-    console.log('Auth check successful:', { userId: user._id });
-    res.json({ user });
+    res.json({
+      user: {
+        _id: user._id.toString(),
+        username: user.username,
+        email: user.email
+      }
+    });
   } catch (error) {
-    console.error('Auth check error:', error);
-    res.status(401).json({ message: 'Authentication failed' });
+    Logger.error('Auth check failed', {
+      context: 'AuthRoutes',
+      code: WebSocketErrorType.AUTH_FAILED,
+      data: error instanceof Error ? error.message : String(error)
+    });
+
+    res.status(401).json({
+      code: WebSocketErrorType.AUTH_FAILED,
+      message: 'Authentication failed'
+    });
+  }
+});
+
+// Logout endpoint
+router.post('/logout', authenticate, async (req, res) => {
+  try {
+    // Clear session if it exists
+    if (req.session) {
+      req.session.destroy((err) => {
+        if (err) {
+          Logger.error('Error destroying session', {
+            context: 'AuthRoutes',
+            code: WebSocketErrorType.AUTH_FAILED,
+            data: err
+          });
+        }
+      });
+    }
+
+    res.json({ message: 'Logged out successfully' });
+  } catch (error) {
+    Logger.error('Logout failed', {
+      context: 'AuthRoutes',
+      code: WebSocketErrorType.AUTH_FAILED,
+      data: error instanceof Error ? error.message : String(error)
+    });
+    res.status(500).json({ message: 'Logout failed' });
   }
 });
 

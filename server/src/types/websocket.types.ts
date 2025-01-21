@@ -1,4 +1,5 @@
 import { Types } from 'mongoose';
+import { WebSocket } from 'ws';
 
 /**
  * Represents the possible states of a WebSocket connection.
@@ -37,6 +38,8 @@ export enum WebSocketMessageType {
   AUTH_ERROR = 'auth_error',
   ERROR = 'error',
   ERROR_ACK = 'error_ack',
+  CLIENT_READY = 'client_ready',
+  READY_CONFIRMED = 'ready_confirmed',
 
   // Messages
   MESSAGE = 'message',
@@ -44,6 +47,7 @@ export enum WebSocketMessageType {
   MESSAGE_UPDATED = 'message_updated',
   MESSAGE_DELETED = 'message_deleted',
   MESSAGE_READ = 'message_read',
+  MESSAGE_SENT = 'message_sent',
   UNREAD_UPDATED = 'unread_updated',
 
   // Channels
@@ -236,3 +240,73 @@ export interface Channel {
 export interface ChannelsLoadedPayload {
   channels: Channel[];
 }
+
+/**
+ * Represents a WebSocket connection with its associated state and metadata
+ */
+export interface WebSocketConnection {
+  socket: WebSocket;
+  userId: string;
+  username: string;
+  state: 'CONNECTING' | 'AUTHENTICATING' | 'AUTHENTICATED' | 'READY' | 'CLOSING' | 'CLOSED';
+  ready: boolean;
+  authenticated: boolean;
+  timeout: NodeJS.Timeout | null;
+  channels: Set<string>;
+  lastSeen: Date;
+}
+
+// Client -> Server messages
+export interface ClientReadyPayload {
+  userId: string;
+}
+
+export interface ChannelJoinPayload {
+  channelId: string;
+}
+
+export interface ChannelLeavePayload {
+  channelId: string;
+}
+
+export interface ChannelMessagePayload {
+  channelId: string;
+  content: string;
+}
+
+export interface PresenceUpdatePayload {
+  status: 'online' | 'away' | 'offline';
+}
+
+// Server -> Client messages
+export interface AuthSuccessPayload {
+  userId: string;
+  username: string;
+}
+
+export interface ReadyConfirmedPayload {
+  userId: string;
+  timestamp: string;
+}
+
+export interface ChannelJoinedPayload {
+  channelId: string;
+  name: string;
+  members: Array<{
+    userId: string;
+    username: string;
+  }>;
+}
+
+export interface PresenceListPayload {
+  users: Array<{
+    userId: string;
+    username: string;
+    status: 'online' | 'away' | 'offline';
+    lastSeen: string;
+  }>;
+}
+
+// Example usage in handlers:
+// handleClientReady(connection: WebSocketConnection, payload: ClientReadyPayload)
+// handleChannelJoin(connection: WebSocketConnection, payload: ChannelJoinPayload)

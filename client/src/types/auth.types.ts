@@ -1,4 +1,4 @@
-import { IUser } from '../../../server/src/models/types';
+import { User } from './user.types';
 
 /**
  * Represents the possible states of authentication.
@@ -15,7 +15,7 @@ export enum AuthState {
  * Interface for the authentication store state.
  */
 export interface AuthStoreState {
-  user: IUser | null;
+  user: User | null;
   authState: AuthState;
   error: string | null;
   token: string | null;
@@ -31,7 +31,7 @@ export interface AuthStoreActions {
   logout: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   guestLogin: (username: string) => Promise<void>;
-  setUser: (user: IUser | null) => void;
+  setUser: (user: User | null) => void;
   setError: (error: string | null) => void;
   setToken: (token: string | null) => void;
 }
@@ -43,4 +43,25 @@ export interface AuthError {
   message: string;
   code?: string;
   details?: any;
+}
+
+export interface LoginCredentials {
+  email: string;
+  password: string;
+}
+
+export interface RegisterCredentials extends LoginCredentials {
+  username: string;
+  confirmPassword: string;
+}
+
+export interface AuthResponse {
+  user: User;
+  token: string;
+}
+
+export interface GoogleAuthResponse {
+  user: User;
+  token: string;
+  isNewUser: boolean;
 }

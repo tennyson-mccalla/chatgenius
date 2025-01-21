@@ -1,22 +1,30 @@
 import { create } from 'zustand';
-import { PresenceState } from './types';
+import { PresenceState, PresenceActions } from './types';
 import { createActions } from './actions';
+import Logger from '../../utils/logger';
 
-export const usePresenceStore = create<PresenceState & ReturnType<typeof createActions>>((set, get) => ({
-  userStatuses: {},
+const initialState: PresenceState = {
+  userStatuses: {}
+};
+
+export const usePresenceStore = create<PresenceState & PresenceActions>((set, get) => ({
+  ...initialState,
   ...createActions(set, get)
 }));
 
-// Debug subscription (after store creation)
+// Add debug subscription
 usePresenceStore.subscribe((state) => {
-  console.log('Presence store updated:', {
-    userCount: Object.keys(state.userStatuses).length,
-    users: Object.entries(state.userStatuses).map(([id, user]) => ({
-      id,
-      username: user.username,
-      status: user.status,
-      lastSeen: user.lastSeen
-    })),
-    timestamp: new Date().toISOString()
+  Logger.debug('Presence store updated', {
+    context: 'PresenceStore',
+    data: {
+      userCount: Object.keys(state.userStatuses).length,
+      users: Object.entries(state.userStatuses).map(([id, user]) => ({
+        id,
+        username: user.username,
+        status: user.status,
+        lastSeen: user.lastSeen?.toISOString()
+      })),
+      timestamp: new Date().toISOString()
+    }
   });
 });

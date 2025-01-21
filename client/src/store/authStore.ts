@@ -1,227 +1,251 @@
 import { create } from 'zustand';
-import api from '../services/api';
-import { AuthState, AuthStoreState, AuthStoreActions } from '../types/auth.types';
-import { UserStatus } from '../../../server/src/models/types';
+import api, { auth } from '../services/api';
+import { AuthState, AuthStoreState, AuthStoreActions, LoginCredentials, RegisterCredentials } from '../types/auth.types';
+import { UserStatus } from '../types/user.types';
 import { usePresenceStore } from './presence/store';
 import Logger from '../utils/logger';
-import { ErrorCodes } from '../config';
 
-export const useAuth = create<AuthStoreState & AuthStoreActions>((set, get) => ({
-  // Initial state
+interface AuthStore extends AuthStoreState, AuthStoreActions {}
+
+const initialState: AuthStoreState = {
   user: null,
   authState: AuthState.UNAUTHENTICATED,
   error: null,
   token: null,
-  isLoading: false,
-  isAuthenticated: false,
+  isLoading: true,
+  isAuthenticated: false
+};
 
-  // Actions
-  setUser: (user) => set({
-    user,
-    authState: user ? AuthState.AUTHENTICATED : AuthState.UNAUTHENTICATED,
-    isAuthenticated: !!user
-  }),
-  setError: (error) => set({ error }),
-  setToken: (token) => {
-    if (token) {
-      localStorage.setItem('token', token);
-    } else {
-      localStorage.removeItem('token');
-    }
-    set({ token });
-  },
+export const useAuth = create<AuthStore>((set, get) => ({
+  ...initialState,
 
   login: async (email: string, password: string) => {
     try {
-      set({ isLoading: true, error: null });
-      const response = await api.post('/api/auth/login', { email, password });
-      const { token, user } = response.data;
+      set({ isLoading: true, error: null, authState: AuthState.AUTHENTICATING });
+      const response = await auth.login(email, password);
+      const { user, token } = response.data;
 
-      // Store token in localStorage and state
-      localStorage.setItem('token', token);
+      Logger.debug('Login successful', {
+        context: 'AuthStore',
+        data: {
+          userId: user._id,
+          username: user.username
+        }
+      });
+
       set({
         user,
         token,
+        isAuthenticated: true,
         authState: AuthState.AUTHENTICATED,
-        isLoading: false,
-        error: null,
-        isAuthenticated: true
+        error: null
       });
+
+      localStorage.setItem('token', token);
+      localStorage.setItem('userId', user._id);
     } catch (error) {
       Logger.error('Login failed', {
         context: 'AuthStore',
-        code: ErrorCodes.AUTH_CHECK_FAILED,
-        data: error
+        data: { error }
       });
       set({
-        user: null,
-        token: null,
-        authState: AuthState.ERROR,
-        isLoading: false,
-        error: 'Login failed',
-        isAuthenticated: false
+        error: error instanceof Error ? error.message : 'Login failed',
+        authState: AuthState.ERROR
       });
       throw error;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
   guestLogin: async (username: string) => {
     try {
-      set({ isLoading: true, error: null });
-      const response = await api.post('/api/auth/guest', { username });
-      const { token, user } = response.data;
+      set({ isLoading: true, error: null, authState: AuthState.AUTHENTICATING });
+      const response = await api.post('/auth/guest', { username });
+      const { user, token } = response.data;
 
-      // Store token in localStorage and state
-      localStorage.setItem('token', token);
+      Logger.debug('Guest login successful', {
+        context: 'AuthStore',
+        data: {
+          userId: user._id,
+          username: user.username
+        }
+      });
+
       set({
         user,
         token,
+        isAuthenticated: true,
         authState: AuthState.AUTHENTICATED,
-        isLoading: false,
-        error: null,
-        isAuthenticated: true
+        error: null
       });
+
+      localStorage.setItem('token', token);
     } catch (error) {
       Logger.error('Guest login failed', {
         context: 'AuthStore',
-        code: ErrorCodes.AUTH_CHECK_FAILED,
-        data: error
+        data: { error }
       });
       set({
-        user: null,
-        token: null,
-        authState: AuthState.ERROR,
-        isLoading: false,
-        error: 'Guest login failed',
-        isAuthenticated: false
+        error: error instanceof Error ? error.message : 'Guest login failed',
+        authState: AuthState.ERROR
       });
-      throw error;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  checkAuth: async () => {
-    const currentState = get();
-    // Skip if already authenticating or authenticated with a user
-    if (currentState.authState === AuthState.AUTHENTICATING ||
-        (currentState.authState === AuthState.AUTHENTICATED && currentState.user)) {
-      Logger.debug('Auth check skipped', {
+  register: async (credentials: RegisterCredentials) => {
+    try {
+      set({ isLoading: true, error: null, authState: AuthState.AUTHENTICATING });
+      const response = await api.post('/auth/register', credentials);
+      const { user, token } = response.data;
+
+      Logger.debug('Registration successful', {
         context: 'AuthStore',
         data: {
-          reason: currentState.authState === AuthState.AUTHENTICATING ?
-            'already authenticating' : 'already authenticated',
-          authState: currentState.authState,
-          hasUser: !!currentState.user
+          userId: user._id,
+          username: user.username
         }
       });
-      return;
-    }
 
-    try {
-      set({ authState: AuthState.AUTHENTICATING, isLoading: true });
-      const token = localStorage.getItem('token');
-
-      if (!token) {
-        set({
-          user: null,
-          token: null,
-          authState: AuthState.UNAUTHENTICATED,
-          isLoading: false,
-          error: null,
-          isAuthenticated: false
-        });
-        return;
-      }
-
-      // Set token in state before making request to ensure consistent state
-      set({ token });
-
-      const response = await api.get('/api/auth/check');
-      if (response.data.user) {
-        set({
-          user: response.data.user,
-          authState: AuthState.AUTHENTICATED,
-          isLoading: false,
-          error: null,
-          isAuthenticated: true
-        });
-        usePresenceStore.getState().setUserStatus(
-          response.data.user._id.toString(),
-          UserStatus.ONLINE,
-          {
-            _id: response.data.user._id.toString(),
-            username: response.data.user.username
-          }
-        );
-      } else {
-        localStorage.removeItem('token');
-        set({
-          user: null,
-          token: null,
-          authState: AuthState.UNAUTHENTICATED,
-          isLoading: false,
-          error: null,
-          isAuthenticated: false
-        });
-      }
-    } catch (error) {
-      Logger.error('Authentication check failed', {
-        context: 'AuthStore',
-        code: ErrorCodes.AUTH_CHECK_FAILED,
-        data: error
-      });
-      localStorage.removeItem('token');
       set({
-        user: null,
-        token: null,
-        authState: AuthState.ERROR,
-        isLoading: false,
-        error: 'Authentication check failed',
-        isAuthenticated: false
+        user,
+        token,
+        isAuthenticated: true,
+        authState: AuthState.AUTHENTICATED,
+        error: null
       });
+
+      localStorage.setItem('token', token);
+    } catch (error) {
+      Logger.error('Registration failed', {
+        context: 'AuthStore',
+        data: { error }
+      });
+      set({
+        error: error instanceof Error ? error.message : 'Registration failed',
+        authState: AuthState.ERROR
+      });
+    } finally {
+      set({ isLoading: false });
     }
   },
 
   logout: async () => {
     try {
-      const { user } = useAuth.getState();
+      const { user } = get();
       if (user) {
-        await api.post('/api/auth/logout');
+        // Update presence to offline before logging out
         await usePresenceStore.getState().setUserStatus(
-          user._id.toString(),
+          user._id,
           UserStatus.OFFLINE,
-          {
-            _id: user._id.toString(),
-            username: user.username
-          }
+          user
         );
       }
-      // Clear token from localStorage and state
+
+      Logger.debug('Logging out', {
+        context: 'AuthStore',
+        data: {
+          userId: user?._id,
+          username: user?.username
+        }
+      });
+
       localStorage.removeItem('token');
       set({
         user: null,
         token: null,
+        isAuthenticated: false,
         authState: AuthState.UNAUTHENTICATED,
-        isLoading: false,
-        error: null,
-        isAuthenticated: false
+        error: null
       });
     } catch (error) {
       Logger.error('Logout failed', {
         context: 'AuthStore',
-        code: ErrorCodes.LOGOUT_FAILED,
-        data: error
+        data: { error }
       });
-      // Force logout on client side even if server request fails
+      set({
+        error: error instanceof Error ? error.message : 'Logout failed',
+        authState: AuthState.ERROR
+      });
+    }
+  },
+
+  checkAuth: async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        set({
+          authState: AuthState.UNAUTHENTICATED,
+          isAuthenticated: false
+        });
+        return;
+      }
+
+      set({ isLoading: true, authState: AuthState.AUTHENTICATING });
+      const response = await api.get('/auth/me');
+      const { user } = response.data;
+
+      set({
+        user,
+        token,
+        isAuthenticated: true,
+        authState: AuthState.AUTHENTICATED,
+        error: null
+      });
+    } catch (error) {
+      Logger.error('Auth check failed', {
+        context: 'AuthStore',
+        data: { error }
+      });
       localStorage.removeItem('token');
       set({
         user: null,
         token: null,
+        isAuthenticated: false,
         authState: AuthState.UNAUTHENTICATED,
-        isLoading: false,
-        error: 'Logout failed',
-        isAuthenticated: false
+        error: error instanceof Error ? error.message : 'Authentication failed'
       });
+    } finally {
+      set({ isLoading: false });
     }
+  },
+
+  setUser: (user) => {
+    Logger.debug('Setting user', {
+      context: 'AuthStore',
+      data: {
+        userId: user?._id,
+        username: user?.username
+      }
+    });
+    set({
+      user,
+      isAuthenticated: !!user,
+      authState: user ? AuthState.AUTHENTICATED : AuthState.UNAUTHENTICATED
+    });
+  },
+
+  setToken: (token) => {
+    Logger.debug('Setting token', {
+      context: 'AuthStore',
+      data: { hasToken: !!token }
+    });
+    set({ token });
+    if (token) {
+      localStorage.setItem('token', token);
+    } else {
+      localStorage.removeItem('token');
+    }
+  },
+
+  setError: (error) => {
+    Logger.error('Setting error', {
+      context: 'AuthStore',
+      data: { error }
+    });
+    set({ error, authState: error ? AuthState.ERROR : AuthState.UNAUTHENTICATED });
   }
 }));
 

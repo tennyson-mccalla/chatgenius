@@ -1,16 +1,21 @@
 import React, { useEffect, useRef } from 'react';
 import { useWebSocket } from '../contexts/WebSocketContext';
-import { useToast, Box, Text, Spinner } from '@chakra-ui/react';
-import { WebSocketConnectionState } from '../types/websocket.types';
+import { useToast } from '@chakra-ui/react';
 
 export const ConnectionStatus: React.FC = () => {
-  const { isConnected, connectionState, reconnectAttempt } = useWebSocket();
+  const { isConnected, lastError } = useWebSocket();
   const toast = useToast();
   const wasConnected = useRef(false);
+  const toastIdRef = useRef<string | null>(null);
 
   // Clear any existing toasts on mount
   useEffect(() => {
-    toast.closeAll();
+    return () => {
+      // Cleanup toasts on unmount
+      if (toastIdRef.current) {
+        toast.close(toastIdRef.current);
+      }
+    };
   }, []);
 
   // Track connection state changes
@@ -19,55 +24,48 @@ export const ConnectionStatus: React.FC = () => {
       wasConnected.current = true;
     }
 
+    // Close any existing toast
+    if (toastIdRef.current) {
+      toast.close(toastIdRef.current);
+      toastIdRef.current = null;
+    }
+
     // Show disconnection toast only if we were previously connected
     if (wasConnected.current && !isConnected) {
+      toastIdRef.current = `connection-warning-${Date.now()}`;
       toast({
         title: 'Connection Lost',
         description: 'Attempting to reconnect...',
         status: 'warning',
         duration: null,
         isClosable: true,
-        position: 'bottom-right',
-        id: 'connection-toast'
+        position: 'bottom',
+        id: toastIdRef.current
       });
     } else if (isConnected && wasConnected.current) {
-      toast.close('connection-toast');
+      toastIdRef.current = `connection-success-${Date.now()}`;
       toast({
         title: 'Connected',
-        description: 'Chat connection restored',
+        description: 'Successfully connected to chat server',
         status: 'success',
         duration: 3000,
         isClosable: true,
-        position: 'bottom-right'
+        position: 'bottom',
+        id: toastIdRef.current
+      });
+    } else if (lastError) {
+      toastIdRef.current = `connection-error-${Date.now()}`;
+      toast({
+        title: 'Connection Error',
+        description: 'Failed to connect to chat server',
+        status: 'error',
+        duration: null,
+        isClosable: true,
+        position: 'bottom',
+        id: toastIdRef.current
       });
     }
-  }, [isConnected, connectionState, toast]);
+  }, [isConnected, lastError, toast]);
 
-  // Only show the status indicator when disconnected after being connected
-  if (!wasConnected.current || isConnected || connectionState === WebSocketConnectionState.CONNECTING) {
-    return null;
-  }
-
-  return (
-    <Box
-      position="fixed"
-      bottom="4"
-      right="4"
-      bg="red.50"
-      p={3}
-      borderRadius="md"
-      boxShadow="sm"
-      display="flex"
-      alignItems="center"
-      gap={2}
-      zIndex={1000}
-    >
-      <Spinner size="sm" color="red.500" />
-      <Text color="red.700" fontSize="sm">
-        {connectionState === WebSocketConnectionState.RECONNECTING
-          ? `Reconnecting (Attempt ${reconnectAttempt})...`
-          : 'Connection lost. Attempting to reconnect...'}
-      </Text>
-    </Box>
-  );
+  return null;
 };

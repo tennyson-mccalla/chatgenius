@@ -2,25 +2,30 @@ import React, { useEffect } from 'react';
 import { Box, VStack, Text, Avatar, Flex } from '@chakra-ui/react';
 import { usePresenceStore } from '../store/presence/store';
 import { useAuth } from '../store/authStore';
-import { UserStatus } from './UserStatus';
+import { UserStatus as UserStatusComponent } from './UserStatus';
+import { UserStatus } from '../types/user.types';
+import Logger from '../utils/logger';
 
 export const OnlineUsersList: React.FC = () => {
   const { userStatuses } = usePresenceStore();
   const { user: currentUser } = useAuth();
 
   useEffect(() => {
-    console.log('OnlineUsersList: Current presence data:', {
-      totalUsers: Object.keys(userStatuses).length,
-      users: Object.values(userStatuses).map(user => ({
-        id: user._id,
-        username: user.username,
-        status: user.status
-      }))
+    Logger.debug('OnlineUsersList: Current presence data:', {
+      context: 'OnlineUsersList',
+      data: {
+        totalUsers: Object.keys(userStatuses).length,
+        users: Object.values(userStatuses).map(user => ({
+          id: user._id,
+          username: user.username,
+          status: user.status
+        }))
+      }
     });
   }, [userStatuses]);
 
   const onlineUsers = Object.values(userStatuses).filter(
-    user => user.status === 'online'
+    user => user.status === UserStatus.ONLINE
   );
 
   const sortedUsers = [...onlineUsers].sort((a, b) =>
@@ -38,7 +43,7 @@ export const OnlineUsersList: React.FC = () => {
         {/* Current user first */}
         {currentUser && currentUserId && (
           <Flex key={currentUserId} align="center" p={2} borderRadius="md" _hover={{ bg: 'gray.200' }}>
-            <UserStatus userId={currentUserId} />
+            <UserStatusComponent userId={currentUserId} />
             <Avatar size="sm" name={currentUser.username} mr={2} />
             <Text fontSize="sm">{currentUser.username} (you)</Text>
           </Flex>
@@ -49,7 +54,7 @@ export const OnlineUsersList: React.FC = () => {
           .filter(user => user._id !== currentUserId)
           .map(user => (
             <Flex key={user._id} align="center" p={2} borderRadius="md" _hover={{ bg: 'gray.200' }}>
-              <UserStatus userId={user._id} />
+              <UserStatusComponent userId={user._id} />
               <Avatar size="sm" name={user.username} mr={2} />
               <Text fontSize="sm">{user.username}</Text>
             </Flex>

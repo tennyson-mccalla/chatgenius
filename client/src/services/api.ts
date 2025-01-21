@@ -14,12 +14,9 @@ const api = axios.create({
   baseURL,
   headers: {
     'Content-Type': 'application/json',
-    'Accept': 'application/json',
-    'X-Requested-With': 'XMLHttpRequest'
+    'Accept': 'application/json'
   },
-  withCredentials: true,
-  xsrfCookieName: 'XSRF-TOKEN',
-  xsrfHeaderName: 'X-XSRF-TOKEN'
+  withCredentials: false
 });
 
 // Add request interceptor to add token from localStorage
@@ -128,6 +125,41 @@ export const messages = {
 
   markAsRead: (channelId: string) =>
     api.post(`/api/messages/channel/${channelId}/read`),
+};
+
+export interface SearchResult {
+  score: number;
+  metadata: {
+    messageId: string;
+    channelId: string;
+    text: string;
+    createdAt: string;
+    userId: string;
+  };
+}
+
+export interface SearchResponse {
+  results: SearchResult[];
+}
+
+export const searchMessages = async (query: string): Promise<SearchResponse> => {
+  const token = localStorage.getItem('token');
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
+  };
+
+  const response = await fetch(`${baseURL}/api/search`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ query }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to search messages');
+  }
+
+  return response.json();
 };
 
 export default api;

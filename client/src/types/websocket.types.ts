@@ -2,64 +2,83 @@
  * Comprehensive list of all WebSocket message types.
  * Used to identify the purpose and handling of each message.
  */
+import { User, UserStatus } from './user.types';
+
 export enum WebSocketMessageType {
-  // Connection
+  // Connection messages
   AUTH = 'auth',
   AUTH_SUCCESS = 'auth_success',
   AUTH_ERROR = 'auth_error',
+  CLIENT_READY = 'client_ready',
+  READY_CONFIRMED = 'ready_confirmed',
   ERROR = 'error',
-  ERROR_ACK = 'error_ack',
 
-  // Messages
-  MESSAGE = 'message',
-  MESSAGE_RECEIVED = 'message_received',
-  MESSAGE_UPDATED = 'message_updated',
-  MESSAGE_DELETED = 'message_deleted',
-  MESSAGE_READ = 'message_read',
-  UNREAD_UPDATED = 'unread_updated',
-
-  // Channels
+  // Channel messages
+  CHANNELS_LOADED = 'channels_loaded',
   CHANNEL_JOIN = 'channel_join',
   CHANNEL_JOINED = 'channel_joined',
   CHANNEL_LEAVE = 'channel_leave',
   CHANNEL_LEFT = 'channel_left',
-  CHANNEL_CREATE = 'channel_create',
   CHANNEL_UPDATE = 'channel_update',
   CHANNEL_UPDATED = 'channel_updated',
-  CHANNEL_INVITE = 'channel_invite',
-  CHANNELS_LOADED = 'channels_loaded',
+
+  // Chat messages
+  MESSAGE = 'message',
+  MESSAGE_SENT = 'message_sent',
+  MESSAGE_RECEIVED = 'message_received',
+  MESSAGE_UPDATED = 'message_updated',
+  MESSAGE_DELETED = 'message_deleted',
+
+  // Typing indicators
+  TYPING_START = 'typing_start',
+  TYPING_STOP = 'typing_stop',
+
+  // Presence updates
+  INITIAL_PRESENCE = 'initial_presence',
+  PRESENCE_CHANGED = 'presence_changed',
 
   // Reactions
   REACTION_ADD = 'reaction_add',
   REACTION_ADDED = 'reaction_added',
   REACTION_REMOVE = 'reaction_remove',
-  REACTION_REMOVED = 'reaction_removed',
-
-  // Typing
-  TYPING_START = 'typing_start',
-  TYPING_STOP = 'typing_stop',
-
-  // Presence
-  PRESENCE_UPDATE = 'presence_update',
-  PRESENCE_CHANGED = 'presence_changed',
-  INITIAL_PRESENCE = 'initial_presence'
+  REACTION_REMOVED = 'reaction_removed'
 }
 
-export interface MessageReadPayload {
+export enum WebSocketErrorType {
+  INVALID_MESSAGE = 'invalid_message',
+  MESSAGE_FAILED = 'message_failed',
+  AUTH_FAILED = 'auth_failed',
+  CONNECTION_ERROR = 'connection_error'
+}
+
+export interface WebSocketMessage {
+  type: WebSocketMessageType;
+  payload?: any;
+  timestamp?: number;
+}
+
+export interface WebSocketError {
+  type: WebSocketErrorType;
+  message: string;
+  details?: any;
+}
+
+export interface PresencePayload {
+  userId: string;
+  username: string;
+  status: UserStatus;
+  lastSeen?: Date;
+}
+
+export interface TypingPayload {
   channelId: string;
   userId: string;
+  username: string;
 }
 
-export interface UnreadUpdatePayload {
+export interface MessagePayload {
   channelId: string;
-  count: number;
-}
-
-export interface WebSocketMessage<T = unknown> {
-  type: WebSocketMessageType;
-  payload: T;
-  id?: string;
-  timestamp: number;
+  content: string;
 }
 
 export interface MessageReceivedPayload {
@@ -67,31 +86,17 @@ export interface MessageReceivedPayload {
   message: {
     _id: string;
     content: string;
-    sender: {
-      _id: string;
-      username: string;
-      avatar?: string;
-    };
+    sender: User;
     channel: {
       _id: string;
     };
     createdAt: string;
+    updatedAt: string;
     reactions?: Array<{
       emoji: string;
       users: string[];
     }>;
   };
-}
-
-export interface PresenceUpdatePayload {
-  userId: string;
-  status: 'online' | 'offline';
-}
-
-export interface TypingPayload {
-  channelId: string;
-  userId: string;
-  username: string;
 }
 
 export interface ReactionPayload {
@@ -101,89 +106,11 @@ export interface ReactionPayload {
   userId: string;
 }
 
-export interface WebSocketConfig {
-  url: string;
-  debug?: boolean;
-  authTimeout?: number;
-  reconnect: {
-    maxAttempts: number;
-    initialDelay: number;
-    maxDelay: number;
-    timeoutMs: number;
-  };
-}
-
-export enum WebSocketConnectionState {
-  CONNECTING = 'CONNECTING',
-  CONNECTED = 'CONNECTED',
-  DISCONNECTED = 'DISCONNECTED',
-  RECONNECTING = 'RECONNECTING',
-  FAILED = 'FAILED'
-}
-
-export enum WebSocketErrorType {
-  CONNECTION_FAILED = 'WS001',
-  SEND_FAILED = 'WS002',
-  AUTH_FAILED = 'AUTH001',
-  MESSAGE_FAILED = 'MSG001',
-  INVALID_MESSAGE = 'MSG002',
-  RATE_LIMITED = 'PR001',
-  CHANNEL_ERROR = 'CH001'
-}
-
-export interface WebSocketError {
-  type: WebSocketErrorType;
-  message: string;
-  timestamp: number;
-  context: string;
-  data?: any;
-}
-
-export interface WebSocketErrorPayload {
-  code: WebSocketErrorType;
-  message: string;
-  details?: any;
-}
-
-export interface AuthPayload {
-  token: string;
-}
-
-export interface AuthSuccessPayload {
-  userId: string;
-  username: string;
-}
-
-export interface PresencePayload {
-  userId: string;
-  username: string;
-  status: 'online' | 'offline' | 'away';
-  lastSeen?: number;
-}
-
-export interface ChannelJoinPayload {
-  channelId: string;
-  userId: string;
-}
-
-export interface ChannelUpdatePayload {
-  channelId: string;
-  name?: string;
-  description?: string;
-  isPrivate?: boolean;
-  members?: string[];
-}
-
-export interface ChannelLeftPayload {
-  channelId: string;
-  userId: string;
-}
-
 export interface ChannelMember {
   _id: string;
   username: string;
   avatar?: string;
-  status?: string;
+  status?: UserStatus;
 }
 
 export interface Channel {
@@ -194,6 +121,7 @@ export interface Channel {
   isDM: boolean;
   members: ChannelMember[];
   hasAccess: boolean;
+  lastMessage?: Date;
 }
 
 export interface ChannelsLoadedPayload {
