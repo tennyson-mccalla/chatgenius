@@ -3,18 +3,21 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore, enableIndexedDbPersistence, CACHE_SIZE_UNLIMITED, collection } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
-// console.log('Firebase Config:', {
-//   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
-//   authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
-//   projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID
-// });
-
+// Using hardcoded configuration instead of environment variables
+// to ensure we have the correct values
 const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
-  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
-  storageBucket: `${process.env.REACT_APP_FIREBASE_PROJECT_ID}.appspot.com`
+  apiKey: "AIzaSyCwPXxzKeC2picNgm81wKZw9Vih8YWRN6Q",
+  authDomain: "chatgenius-75366.firebaseapp.com",
+  projectId: "chatgenius-75366",
+  storageBucket: "chatgenius-75366.firebasestorage.app",
+  messagingSenderId: "814035880589",
+  appId: "1:814035880589:web:e7656eda3e86ee0e11b0c4",
+  measurementId: "G-EYP4F32756"
 };
+
+// Log config and current location for debugging
+console.log('DEBUG - Using Firebase Config:', firebaseConfig);
+console.log('DEBUG - Current Location:', window.location.href);
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);

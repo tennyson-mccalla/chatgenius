@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, query, onSnapshot, orderBy, where, Timestamp } from 'firebase/firestore';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import DirectMessages from './DirectMessages';
 
 function Sidebar() {
   const [channels, setChannels] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [isChannelsExpanded, setIsChannelsExpanded] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
   const { channelId } = useParams();
 
   // Fetch channels
@@ -50,6 +52,8 @@ function Sidebar() {
     return () => unsubscribe();
   }, []);
 
+  const [isAIExpanded, setIsAIExpanded] = useState(true);
+  
   return (
     <div style={{
       flex: 1,
@@ -57,6 +61,66 @@ function Sidebar() {
       color: '#ffffff',
       padding: '16px 0',
     }}>
+      {/* AI Tools section */}
+      <div style={{ padding: '0 16px', marginBottom: '24px' }}>
+        <div
+          onClick={() => setIsAIExpanded(!isAIExpanded)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            cursor: 'pointer',
+            marginBottom: '12px',
+          }}
+        >
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            style={{
+              transform: `rotate(${isAIExpanded ? '90deg' : '0deg'})`,
+              transition: 'transform 0.2s ease'
+            }}
+          >
+            <path
+              fill="currentColor"
+              d="M8 5v14l11-7z"
+            />
+          </svg>
+          <h2 style={{
+            fontSize: '14px',
+            textTransform: 'uppercase',
+            color: 'rgba(255,255,255,0.7)',
+            margin: 0,
+          }}>
+            AI Tools
+          </h2>
+        </div>
+
+        {isAIExpanded && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <button
+              onClick={() => navigate('/ai/docsearch')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '6px 12px',
+                background: location.pathname === '/ai/docsearch' ? 'rgba(255,255,255,0.1)' : 'none',
+                border: 'none',
+                borderRadius: '4px',
+                color: location.pathname === '/ai/docsearch' ? '#ffffff' : 'rgba(255,255,255,0.7)',
+                cursor: 'pointer',
+                textAlign: 'left',
+                width: '100%',
+                fontSize: '16px',
+              }}
+            >
+              <span role="img" aria-label="search" style={{ marginRight: '8px' }}>🔍</span> Document Search
+            </button>
+          </div>
+        )}
+      </div>
+      
       {/* Channels section */}
       <div style={{ padding: '0 16px' }}>
         <div
@@ -124,6 +188,9 @@ function Sidebar() {
         )}
       </div>
 
+      {/* Direct Messages section */}
+      <DirectMessages />
+      
       {/* Online users section */}
       <div style={{ padding: '24px 16px 0' }}>
         <h2 style={{

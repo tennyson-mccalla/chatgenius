@@ -22,6 +22,8 @@ function AppRoutes() {
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
         <Route index element={<Navigate to="/channels/general" replace />} />
         <Route path="/channels/:channelId" element={<Layout />} />
+        <Route path="/dm/:userId" element={<Layout />} />
+        <Route path="/ai/docsearch" element={<Layout />} />
       </Route>
     </Routes>
   );

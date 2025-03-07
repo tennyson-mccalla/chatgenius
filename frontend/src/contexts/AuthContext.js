@@ -43,7 +43,19 @@ export function AuthProvider({ children }) {
     try {
       console.log("Starting Google sign in...");
       const provider = new GoogleAuthProvider();
-      console.log("Created provider...");
+      
+      // Add these troubleshooting lines
+      provider.setCustomParameters({
+        prompt: 'select_account'
+      });
+      console.log("Created provider with custom parameters...");
+
+      // Log full auth object (without sensitive data)
+      console.log("Auth config:", {
+        appName: auth.app.name,
+        authDomain: auth.app.options.authDomain,
+        apiKey: "REDACTED"
+      });
 
       const result = await signInWithPopup(auth, provider);
       console.log("Auth result:", result.user);
@@ -57,6 +69,7 @@ export function AuthProvider({ children }) {
       console.error("Error signing in with Google:", error);
       console.error("Error code:", error.code);
       console.error("Error message:", error.message);
+      console.error("Full error:", JSON.stringify(error));
       throw error;
     }
   };
@@ -64,10 +77,23 @@ export function AuthProvider({ children }) {
   // Guest Sign In
   const signInAsGuest = async () => {
     try {
+      console.log("Starting anonymous sign in...");
+      
+      // Log auth configuration
+      console.log("Auth config for anonymous:", {
+        appName: auth.app.name,
+        authDomain: auth.app.options.authDomain,
+        projectId: auth.app.options.projectId
+      });
+      
       const result = await signInAnonymously(auth);
+      console.log("Anonymous sign in success:", result.user.uid);
       await updateUserData(result.user, true);
     } catch (error) {
       console.error("Error signing in as guest:", error);
+      console.error("Error code:", error.code);
+      console.error("Error message:", error.message);
+      console.error("Full error object:", JSON.stringify(error, null, 2));
       throw error;
     }
   };

@@ -37,3 +37,14 @@ yarn.lock
 .firebase/
 .firebaserc
 firebase.json
+
+# API Keys and configurations
+frontend/.env
+frontend/.env.local
+frontend/.env.development
+frontend/.env.production
+frontend/src/aws-config.js
+**/aws-credentials.json
+
+# Generated files
+.swp

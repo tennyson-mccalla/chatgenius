@@ -1,9 +1,10 @@
 import React from 'react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { useNavigate, Navigate, useParams, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Chat from './Chat';
+import AIDocSearch from './AIDocSearch';
 import ThemeToggle from './ThemeToggle';
 import { handleSignOut } from '../utils/cleanupSessions';
 import { usePresence } from '../hooks/usePresence';
@@ -12,6 +13,8 @@ function Layout() {
   const { isDark } = useTheme();
   const { currentUser } = useAuth();
   const navigate = useNavigate();
+  const params = useParams();
+  const location = useLocation();
 
   usePresence(currentUser);
 
@@ -118,14 +121,18 @@ function Layout() {
           <Sidebar />
         </div>
 
-        {/* Chat Area */}
+        {/* Main Content Area */}
         <div style={{
           flex: 1,
           display: 'flex',
           minWidth: 0,
           backgroundColor: isDark ? '#1a1d21' : '#ffffff'
         }}>
-          <Chat />
+          {location.pathname.startsWith('/ai/docsearch') ? (
+            <AIDocSearch />
+          ) : (
+            <Chat userId={params.userId} />
+          )}
         </div>
       </div>
     </div>
